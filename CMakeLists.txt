@@ -49,8 +49,6 @@ add_executable(hyperion-webos
     src/main.c
     src/settings.c
     src/service.c
-    src/unicapture.c
-    src/converter.c
     src/log.c
     src/utils.c
     src/hyperion_client.c
@@ -63,6 +61,7 @@ set_target_properties(hyperion-webos PROPERTIES
     # TODO: use above options after upgrading to CMake 3.11
     # LINK_FLAGS "-Wl,-rpath,'$ORIGIN:$ORIGIN/lib' -Wl,-z,origin"
 )
+target_include_directories(hyperion-webos PRIVATE ${CMAKE_BINARY_DIR})
 target_link_libraries(hyperion-webos fbs flatccrt pthread dl unicapture rt ${GTHREAD2_LDFLAGS} ${PBNJSON_LDFLAGS} ${LS2_LDFLAGS} ${GLIB2_LDFLAGS} ${PMLOG_LDFLAGS})
 add_dependencies(hyperion-webos version)
 set_property(TARGET hyperion-webos PROPERTY ENABLE_EXPORTS 1)
