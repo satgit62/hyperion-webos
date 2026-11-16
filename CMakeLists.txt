@@ -1,3 +1,4 @@
+set(CMAKE_POLICY_VERSION_MINIMUM "3.5" CACHE STRING "" FORCE)
 cmake_minimum_required(VERSION 3.6)
 project(hyperion-webos VERSION 1.0 LANGUAGES C CXX)
 
