@@ -35,6 +35,7 @@ typedef struct _settings_t {
 
     bool drm_fallback;
     char* histogram_profile;
+    char* histogram_geometry;
 } settings_t;
 
 void settings_init(settings_t*);

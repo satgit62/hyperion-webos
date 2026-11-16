@@ -23,6 +23,7 @@
 #define SPATIAL_WIDTH 160
 #define SPATIAL_HEIGHT 90
 #define SPATIAL_PIXELS (SPATIAL_WIDTH * SPATIAL_HEIGHT)
+#define MAX_PIXEL_REFS 4
 
 typedef struct {
     uint32_t id;
@@ -35,16 +36,51 @@ typedef struct {
 } RimPoint;
 
 typedef struct {
-    unsigned char a;
-    unsigned char b;
-    unsigned weight;
-} LedBlend;
+    unsigned char region;
+    double x0;
+    double y0;
+    double x1;
+    double y1;
+} RegionRect;
 
-static const RimPoint default_rim[] = {
+typedef struct {
+    unsigned char count;
+    unsigned char regions[MAX_PIXEL_REFS];
+    uint16_t weights[MAX_PIXEL_REFS];
+} PixelMix;
+
+static const RimPoint g4_rim[] = {
     { 0.2078431373, 7 },  { 0.3176470588, 3 },  { 0.5490196078, 11 },
     { 0.7529411765, 12 }, { 0.8392156863, 13 }, { 1.4941176471, 10 },
     { 2.1843137255, 9 },  { 2.5490196078, 1 },  { 2.8666666667, 5 },
     { 3.4000000000, 15 }
+};
+
+static const RimPoint c_series_rim[] = {
+    { 0.1250000000, 7 },  { 0.3750000000, 3 },  { 0.6250000000, 11 },
+    { 0.8750000000, 12 }, { 1.2500000000, 13 }, { 1.7500000000, 10 },
+    { 2.1250000000, 9 },  { 2.3750000000, 1 },  { 2.6250000000, 5 },
+    { 2.8750000000, 4 },  { 3.2500000000, 15 }, { 3.7500000000, 14 }
+};
+
+/* 16 gemessene Panel-Rechtecke inkl. kompletter Unterkante fuer 4-seitiges Ambilight */
+static const RegionRect default_rects[] = {
+    { 7,  0.09, 0.02, 0.32, 0.35 },
+    { 3,  0.00, 0.00, 0.45, 0.20 },
+    { 0,  0.31, 0.02, 0.69, 0.15 },
+    { 11, 0.35, 0.00, 0.65, 0.16 },
+    { 12, 0.68, 0.00, 1.00, 0.35 },
+    { 13, 0.71, 0.09, 1.00, 0.36 },
+    { 10, 0.80, 0.22, 1.00, 0.72 },
+    { 9,  0.70, 0.62, 1.00, 1.00 },
+    { 1,  0.15, 0.76, 0.85, 1.00 },
+    { 5,  0.00, 0.63, 0.29, 1.00 },
+    { 15, 0.01, 0.24, 0.11, 0.66 },
+    { 6,  0.00, 0.21, 0.20, 0.72 },
+    { 4,  0.22, 0.02, 0.48, 0.96 },
+    { 2,  0.31, 0.28, 0.69, 0.66 },
+    { 8,  0.52, 0.02, 0.78, 0.96 },
+    { 14, 0.00, 0.00, 1.00, 1.00 }
 };
 
 typedef struct {
@@ -63,8 +99,13 @@ typedef struct {
     uint64_t candidate_since;
     uint64_t next_border_probe;
 
+    bool average_mode;
+    bool rectangle_mode;
+    float srgb_to_lin[256];
+    uint8_t lin_to_srgb[4096];
+
     uint8_t* rgb_buffer;
-    LedBlend blends[SPATIAL_PIXELS];
+    PixelMix mixes[SPATIAL_PIXELS];
 } histogram_backend_state_t;
 
 static volatile sig_atomic_t g_policy_revoked = 0;
@@ -82,15 +123,148 @@ static uint64_t now_ms(void)
     return (uint64_t)t.tv_sec * 1000ULL + (uint64_t)t.tv_nsec / 1000000ULL;
 }
 
+static void init_color_luts(histogram_backend_state_t* self)
+{
+    for (int i = 0; i < 256; i++) {
+        double s = i / 255.0;
+        double lin = (s <= 0.04045) ? (s / 12.92) : pow((s + 0.055) / 1.055, 2.4);
+        self->srgb_to_lin[i] = (float)lin;
+    }
+    for (int i = 0; i < 4096; i++) {
+        double lin = i / 4095.0;
+        double s = (lin <= 0.0031308) ? (12.92 * lin) : (1.055 * pow(lin, 1.0 / 2.4) - 0.055);
+        int v = (int)(s * 255.0 + 0.5);
+        if (v < 0) v = 0;
+        if (v > 255) v = 255;
+        self->lin_to_srgb[i] = (uint8_t)v;
+    }
+}
+
+static uint8_t encode_linear(const histogram_backend_state_t* self, float lin)
+{
+    if (lin <= 0.0f) return 0;
+    if (lin >= 1.0f) return 255;
+    int idx = (int)(lin * 4095.0f + 0.5f);
+    return self->lin_to_srgb[idx];
+}
+
+static double screen_perimeter(double x, double y)
+{
+    double distances[] = { y, 1.0 - x, 1.0 - y, x };
+    double positions[] = { x, 1.0 + y, 3.0 - x, 4.0 - y };
+    unsigned edge = 0;
+    for (unsigned i = 1; i < 4; i++) {
+        if (distances[i] < distances[edge]) edge = i;
+    }
+    return positions[edge] >= 4.0 ? positions[edge] - 4.0 : positions[edge];
+}
+
+static void build_spatial_mixes(histogram_backend_state_t* self, const RimPoint* rim, unsigned rim_count)
+{
+    for (unsigned y = 0; y < SPATIAL_HEIGHT; y++) {
+        double py = (y + 0.5) / SPATIAL_HEIGHT;
+        for (unsigned x = 0; x < SPATIAL_WIDTH; x++) {
+            double px = (x + 0.5) / SPATIAL_WIDTH;
+            PixelMix* m = &self->mixes[y * SPATIAL_WIDTH + x];
+            memset(m, 0, sizeof(*m));
+
+            if (self->average_mode) {
+                m->count = 1;
+                m->regions[0] = 0;
+                m->weights[0] = 65535;
+                continue;
+            }
+
+            if (self->rectangle_mode) {
+                unsigned cand_r[16];
+                double cand_w[16];
+                unsigned cand_n = 0;
+
+                for (unsigned i = 0; i < 16; i++) {
+                    const RegionRect* rc = &default_rects[i];
+                    if (px >= rc->x0 && px <= rc->x1 && py >= rc->y0 && py <= rc->y1) {
+                        double area = (rc->x1 - rc->x0) * (rc->y1 - rc->y0);
+                        if (area < 1e-6) area = 1e-6;
+                        cand_r[cand_n] = rc->region;
+                        cand_w[cand_n] = 1.0 / area;
+                        cand_n++;
+                    }
+                }
+
+                if (cand_n == 0) {
+                    /* Nearest-Center Fallback */
+                    unsigned best_r = 0;
+                    double best_d2 = 1e9;
+                    for (unsigned i = 0; i < 16; i++) {
+                        double cx = 0.5 * (default_rects[i].x0 + default_rects[i].x1);
+                        double cy = 0.5 * (default_rects[i].y0 + default_rects[i].y1);
+                        double d2 = (px - cx) * (px - cx) + (py - cy) * (py - cy);
+                        if (d2 < best_d2) {
+                            best_d2 = d2;
+                            best_r = default_rects[i].region;
+                        }
+                    }
+                    m->count = 1;
+                    m->regions[0] = (unsigned char)best_r;
+                    m->weights[0] = 65535;
+                    continue;
+                }
+
+                /* Top-4 schwerste (kleinste) Rechtecke waehlen und normalisieren */
+                for (unsigned a = 0; a < cand_n; a++) {
+                    for (unsigned b = a + 1; b < cand_n; b++) {
+                        if (cand_w[b] > cand_w[a]) {
+                            double tw = cand_w[a]; cand_w[a] = cand_w[b]; cand_w[b] = tw;
+                            unsigned tr = cand_r[a]; cand_r[a] = cand_r[b]; cand_r[b] = tr;
+                        }
+                    }
+                }
+
+                unsigned take = cand_n > MAX_PIXEL_REFS ? MAX_PIXEL_REFS : cand_n;
+                double wsum = 0.0;
+                for (unsigned i = 0; i < take; i++) wsum += cand_w[i];
+
+                m->count = (unsigned char)take;
+                unsigned acc = 0;
+                for (unsigned i = 0; i < take; i++) {
+                    m->regions[i] = (unsigned char)cand_r[i];
+                    if (i + 1 == take) {
+                        m->weights[i] = (uint16_t)(65535U - acc);
+                    } else {
+                        unsigned w = (unsigned)(cand_w[i] / wsum * 65535.0 + 0.5);
+                        m->weights[i] = (uint16_t)w;
+                        acc += w;
+                    }
+                }
+            } else {
+                /* Klassische Perimeter-Interpolation (Rim) */
+                double t = screen_perimeter(px, py);
+                unsigned right = 0;
+                while (right < rim_count && rim[right].position <= t) right++;
+                right %= rim_count;
+                unsigned left = (right + rim_count - 1) % rim_count;
+                double span = rim[right].position - rim[left].position;
+                double dist = t - rim[left].position;
+                if (span <= 0.0) span += 4.0;
+                if (dist < 0.0) dist += 4.0;
+                unsigned wb = (unsigned)(dist / span * 65535.0 + 0.5);
+                m->count = 2;
+                m->regions[0] = rim[left].region;
+                m->regions[1] = rim[right].region;
+                m->weights[0] = (uint16_t)(65535U - wb);
+                m->weights[1] = (uint16_t)wb;
+            }
+        }
+    }
+}
+
 static bool enter_developer_mode(int* guard_pipe, pid_t* guard_pid)
 {
     *guard_pipe = -1;
     *guard_pid = -1;
 
     int marker = open(DEV_MODE_PATH, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0600);
-    if (marker < 0) {
-        return errno == EEXIST;
-    }
+    if (marker < 0) return errno == EEXIST;
 
     struct stat owned;
     if (fstat(marker, &owned) != 0) {
@@ -138,68 +312,15 @@ static bool enter_developer_mode(int* guard_pipe, pid_t* guard_pid)
 
 static void leave_developer_mode(int* guard_pipe, pid_t* guard_pid)
 {
-    if (*guard_pipe < 0) {
-        return;
-    }
+    if (*guard_pipe < 0) return;
     close(*guard_pipe);
     *guard_pipe = -1;
 
     int status;
     while (waitpid(*guard_pid, &status, 0) < 0) {
-        if (errno != EINTR) {
-            break;
-        }
+        if (errno != EINTR) break;
     }
     *guard_pid = -1;
-}
-
-static double screen_perimeter(double x, double y)
-{
-    double distances[] = { y, 1.0 - x, 1.0 - y, x };
-    double positions[] = { x, 1.0 + y, 3.0 - x, 4.0 - y };
-    unsigned edge = 0;
-    for (unsigned i = 1; i < 4; i++) {
-        if (distances[i] < distances[edge]) {
-            edge = i;
-        }
-    }
-    return positions[edge] >= 4.0 ? positions[edge] - 4.0 : positions[edge];
-}
-
-static LedBlend compute_layout_blend(double x, double y)
-{
-    double t = screen_perimeter(x, y);
-    unsigned n = (unsigned)(sizeof(default_rim) / sizeof(default_rim[0]));
-    unsigned right = 0;
-    while (right < n && default_rim[right].position <= t) {
-        right++;
-    }
-    right %= n;
-    unsigned left = (right + n - 1) % n;
-    double span = default_rim[right].position - default_rim[left].position;
-    double distance = t - default_rim[left].position;
-    if (span <= 0.0) {
-        span += 4.0;
-    }
-    if (distance < 0.0) {
-        distance += 4.0;
-    }
-    LedBlend b;
-    b.a = default_rim[left].region;
-    b.b = default_rim[right].region;
-    b.weight = (unsigned)(distance / span * 65535.0 + 0.5);
-    return b;
-}
-
-static unsigned char histogram_mean(const uint16_t bins[256])
-{
-    uint64_t count = 0;
-    uint64_t weight = 0;
-    for (unsigned b = 0; b < 256; b++) {
-        count += bins[b];
-        weight += (uint64_t)bins[b] * b;
-    }
-    return count ? (unsigned char)((weight + count / 2) / count) : 0;
 }
 
 static bool histogram_populated(const Histogram hist[16])
@@ -207,9 +328,7 @@ static bool histogram_populated(const Histogram hist[16])
     for (int i = 0; i < 16; i++) {
         for (int c = 0; c < 3; c++) {
             for (int b = 0; b < 256; b++) {
-                if (hist[i].bins[c][b] != 0) {
-                    return true;
-                }
+                if (hist[i].bins[c][b] != 0) return true;
             }
         }
     }
@@ -220,13 +339,9 @@ static void dark_color_filter(unsigned char color[3])
 {
     unsigned peak = color[0];
     for (unsigned c = 1; c < 3; c++) {
-        if (color[c] > peak) {
-            peak = color[c];
-        }
+        if (color[c] > peak) peak = color[c];
     }
-    if (peak >= 32) {
-        return;
-    }
+    if (peak >= 32) return;
     unsigned gain = peak > 16 ? peak - 16 : 0;
     for (unsigned c = 0; c < 3; c++) {
         color[c] = (unsigned char)((color[c] * gain + 8) / 16);
@@ -241,9 +356,7 @@ static int letterbox_candidate(const unsigned black[16], unsigned char color[16]
         unsigned r = interior[i];
         unsigned peak = color[r][0];
         for (unsigned c = 1; c < 3; c++) {
-            if (color[r][c] > peak) {
-                peak = color[r][c];
-            }
+            if (color[r][c] > peak) peak = color[r][c];
         }
         if (black[r] < 20 && peak > 35) {
             lit++;
@@ -251,14 +364,10 @@ static int letterbox_candidate(const unsigned black[16], unsigned char color[16]
             interior_peak += peak;
         }
     }
-    if (lit < 2) {
-        return -1;
-    }
+    if (lit < 2) return -1;
     unsigned top = (black[3] + black[11] + black[12]) / 3;
     unsigned bottom = (black[1] + black[5] + black[9]) / 3;
-    if (top >= 55 && bottom >= 25) {
-        return 1;
-    }
+    if (top >= 55 && bottom >= 25) return 1;
 
     const unsigned top_regions[] = { 3, 11, 12 };
     const unsigned bottom_regions[] = { 1, 5, 9 };
@@ -267,9 +376,7 @@ static int letterbox_candidate(const unsigned black[16], unsigned char color[16]
         unsigned r = top_regions[i];
         unsigned peak = color[r][0];
         for (unsigned c = 1; c < 3; c++) {
-            if (color[r][c] > peak) {
-                peak = color[r][c];
-            }
+            if (color[r][c] > peak) peak = color[r][c];
         }
         top_peak += peak;
         top_support += black[r] >= 12 ? 1U : 0U;
@@ -281,18 +388,14 @@ static int letterbox_candidate(const unsigned black[16], unsigned char color[16]
         (unsigned long)top_peak * lit * 100 <= (unsigned long)interior_peak * 3 * 60) {
         return 1;
     }
-    if (top < 20 && bottom < 20) {
-        return 0;
-    }
+    if (top < 20 && bottom < 20) return 0;
     return -1;
 }
 
 int capture_init(cap_backend_config_t* config, void** state_p)
 {
     histogram_backend_state_t* self = calloc(1, sizeof(histogram_backend_state_t));
-    if (!self) {
-        return -1;
-    }
+    if (!self) return -1;
 
     self->vt_lib = dlopen("libvtcapture.so.1", RTLD_NOW);
     if (!self->vt_lib) {
@@ -320,33 +423,40 @@ int capture_init(cap_backend_config_t* config, void** state_p)
         return -4;
     }
 
-    for (unsigned y = 0; y < SPATIAL_HEIGHT; y++) {
-        for (unsigned x = 0; x < SPATIAL_WIDTH; x++) {
-            self->blends[y * SPATIAL_WIDTH + x] =
-                compute_layout_blend((x + 0.5) / SPATIAL_WIDTH, (y + 0.5) / SPATIAL_HEIGHT);
-        }
+    init_color_luts(self);
+
+    const char* profile = getenv("HYPERION_HISTOGRAM_PROFILE");
+    const char* geom = getenv("HYPERION_HISTOGRAM_GEOMETRY");
+
+    self->average_mode = (profile != NULL && strcmp(profile, "average") == 0);
+    self->rectangle_mode = (geom == NULL || strcmp(geom, "rim") != 0);
+
+    const RimPoint* rim = g4_rim;
+    unsigned rim_count = (unsigned)(sizeof(g4_rim) / sizeof(g4_rim[0]));
+    if (profile != NULL && (strcmp(profile, "c2") == 0 || strcmp(profile, "c3") == 0)) {
+        rim = c_series_rim;
+        rim_count = (unsigned)(sizeof(c_series_rim) / sizeof(c_series_rim[0]));
     }
+
+    build_spatial_mixes(self, rim, rim_count);
 
     self->fps = (config && config->fps > 0) ? config->fps : 30;
     self->pending_letterbox = -1;
     *state_p = self;
-    INFO("histogram_backend: initialized (%dx%d synthetic RGB)", SPATIAL_WIDTH, SPATIAL_HEIGHT);
+    INFO("histogram_backend: initialized (profile=%s, geometry=%s, linear-light)",
+         profile ? profile : "default",
+         self->average_mode ? "average" : (self->rectangle_mode ? "rectangles" : "rim"));
     return 0;
 }
+
+
 
 int capture_cleanup(void* state)
 {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (!self) {
-        return 0;
-    }
-    if (self->handle) {
-        self->vt_finish(self->handle);
-        self->handle = NULL;
-    }
-    if (self->vt_lib) {
-        dlclose(self->vt_lib);
-    }
+    if (!self) return 0;
+    if (self->handle) { self->vt_finish(self->handle); self->handle = NULL; }
+    if (self->vt_lib) dlclose(self->vt_lib);
     free(self->rgb_buffer);
     free(self);
     return 0;
@@ -355,31 +465,21 @@ int capture_cleanup(void* state)
 int capture_start(void* state)
 {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (self->handle) {
-        return 0;
-    }
-
+    if (self->handle) return 0;
     int guard_pipe = -1;
     pid_t guard_pid = -1;
     if (!enter_developer_mode(&guard_pipe, &guard_pid)) {
         WARN("histogram_backend: could not create vt_devmode marker");
     }
-
     g_policy_revoked = 0;
     self->handle = self->vt_init(policy_callback);
     leave_developer_mode(&guard_pipe, &guard_pid);
-
-    if (!self->handle) {
-        ERR("histogram_backend: vtCapture_initHistogram failed");
-        return -1;
-    }
-
+    if (!self->handle) { ERR("histogram_backend: vtCapture_initHistogram failed"); return -1; }
     self->preset = 0;
     self->letterbox_mode = 0;
     self->pending_letterbox = -1;
     self->settling = 1;
     self->vt_preset(self->handle, 0);
-
     INFO("histogram_backend: started");
     return 0;
 }
@@ -387,10 +487,7 @@ int capture_start(void* state)
 int capture_terminate(void* state)
 {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (self->handle) {
-        self->vt_finish(self->handle);
-        self->handle = NULL;
-    }
+    if (self->handle) { self->vt_finish(self->handle); self->handle = NULL; }
     INFO("histogram_backend: terminated");
     return 0;
 }
@@ -398,10 +495,7 @@ int capture_terminate(void* state)
 int capture_wait(void* state)
 {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (g_policy_revoked) {
-        WARN("histogram_backend: LG policy revoked capture, restarting...");
-        return -99;
-    }
+    if (g_policy_revoked) { WARN("histogram_backend: LG policy revoked capture"); return -99; }
     usleep(1000000 / self->fps);
     return 0;
 }
@@ -409,89 +503,83 @@ int capture_wait(void* state)
 int capture_acquire_frame(void* state, frame_info_t* frame)
 {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (!self->handle || g_policy_revoked) {
-        return -1;
-    }
-
+    if (!self->handle || g_policy_revoked) return -1;
     uint64_t now = now_ms();
-
-    if (self->settling > 0) {
-        self->settling--;
-        return -2;
-    }
-
+    if (self->settling > 0) { self->settling--; return -2; }
     if (self->letterbox_mode && self->preset == 1 && now >= self->next_border_probe) {
-        if (self->vt_preset(self->handle, 0) == 0) {
-            self->preset = 0;
-            self->settling = 2;
-        }
+        if (self->vt_preset(self->handle, 0) == 0) { self->preset = 0; self->settling = 2; }
         return -2;
     }
-
     Histogram hist[16];
     memset(hist, 0, sizeof(hist));
-    int rc = self->vt_get(self->handle, hist);
-    if (rc != 0 || !histogram_populated(hist)) {
-        return -3;
-    }
-
+    if (self->vt_get(self->handle, hist) != 0 || !histogram_populated(hist)) return -3;
     unsigned black_percent[16];
-    unsigned char rgb[16][3];
-
+    unsigned char srgb_eval[16][3];
+    float lin_rgb[16][3];
     for (int i = 0; i < 16; i++) {
         black_percent[i] = 100;
         for (int c = 0; c < 3; c++) {
-            uint64_t total = 0;
-            uint64_t black = 0;
+            uint64_t total = 0, black = 0;
+            double lin_sum = 0.0;
             for (int b = 0; b < 256; b++) {
-                total += hist[i].bins[c][b];
-                if (b <= 12) {
-                    black += hist[i].bins[c][b];
-                }
+                uint16_t cnt = hist[i].bins[c][b];
+                if (cnt == 0) continue;
+                total += cnt;
+                if (b <= 12) black += cnt;
+                lin_sum += (double)cnt * self->srgb_to_lin[b];
             }
             unsigned fraction = total ? (unsigned)(100 * black / total) : 0;
-            if (fraction < black_percent[i]) {
-                black_percent[i] = fraction;
-            }
-            rgb[i][c] = histogram_mean(hist[i].bins[c]);
+            if (fraction < black_percent[i]) black_percent[i] = fraction;
+            float mean_lin = total ? (float)(lin_sum / (double)total) : 0.0f;
+            lin_rgb[i][c] = mean_lin;
+            srgb_eval[i][c] = encode_linear(self, mean_lin);
         }
     }
-
     if (self->preset == 0) {
-        int candidate = letterbox_candidate(black_percent, rgb);
-        if (candidate < 0) {
-            self->pending_letterbox = -1;
-        } else if (candidate != self->pending_letterbox) {
-            self->pending_letterbox = candidate;
-            self->candidate_since = now;
-        } else if ((unsigned)candidate != self->letterbox_mode &&
-                   now - self->candidate_since >= 2000) {
-            self->letterbox_mode = (unsigned)candidate;
-        }
-
+        int candidate = letterbox_candidate(black_percent, srgb_eval);
+        if (candidate < 0) self->pending_letterbox = -1;
+        else if (candidate != self->pending_letterbox) { self->pending_letterbox = candidate; self->candidate_since = now; }
+        else if ((unsigned)candidate != self->letterbox_mode && now - self->candidate_since >= 2000) self->letterbox_mode = (unsigned)candidate;
         if (self->letterbox_mode) {
-            if (self->vt_preset(self->handle, 1) == 0) {
-                self->preset = 1;
-                self->settling = 2;
-                self->next_border_probe = now + 2000;
-            }
+            if (self->vt_preset(self->handle, 1) == 0) { self->preset = 1; self->settling = 2; self->next_border_probe = now + 2000; }
             return -2;
         }
     }
-
     for (unsigned i = 0; i < 16; i++) {
-        dark_color_filter(rgb[i]);
+        dark_color_filter(srgb_eval[i]);
+        for (unsigned c = 0; c < 3; c++) lin_rgb[i][c] = self->srgb_to_lin[srgb_eval[i][c]];
     }
-
-    for (unsigned i = 0; i < SPATIAL_PIXELS; i++) {
-        LedBlend b = self->blends[i];
-        for (unsigned c = 0; c < 3; c++) {
-            unsigned val = ((unsigned)rgb[b.a][c] * (65535U - b.weight) +
-                            (unsigned)rgb[b.b][c] * b.weight + 32767U) / 65535U;
-            self->rgb_buffer[i * 3 + c] = (uint8_t)val;
+    if (self->average_mode) {
+        float avg_r = 0.0f, avg_g = 0.0f, avg_b = 0.0f;
+        for (unsigned i = 0; i < 16; i++) {
+            avg_r += lin_rgb[i][0];
+            avg_g += lin_rgb[i][1];
+            avg_b += lin_rgb[i][2];
+        }
+        uint8_t r = encode_linear(self, avg_r / 16.0f);
+        uint8_t g = encode_linear(self, avg_g / 16.0f);
+        uint8_t b = encode_linear(self, avg_b / 16.0f);
+        for (unsigned i = 0; i < SPATIAL_PIXELS; i++) {
+            self->rgb_buffer[i * 3 + 0] = r;
+            self->rgb_buffer[i * 3 + 1] = g;
+            self->rgb_buffer[i * 3 + 2] = b;
+        }
+    } else {
+        for (unsigned i = 0; i < SPATIAL_PIXELS; i++) {
+            const PixelMix* m = &self->mixes[i];
+            float acc_r = 0.0f, acc_g = 0.0f, acc_b = 0.0f;
+            for (unsigned k = 0; k < m->count; k++) {
+                float w = m->weights[k] / 65535.0f;
+                unsigned reg = m->regions[k];
+                acc_r += lin_rgb[reg][0] * w;
+                acc_g += lin_rgb[reg][1] * w;
+                acc_b += lin_rgb[reg][2] * w;
+            }
+            self->rgb_buffer[i * 3 + 0] = encode_linear(self, acc_r);
+            self->rgb_buffer[i * 3 + 1] = encode_linear(self, acc_g);
+            self->rgb_buffer[i * 3 + 2] = encode_linear(self, acc_b);
         }
     }
-
     frame->pixel_format = PIXFMT_RGB;
     frame->width = SPATIAL_WIDTH;
     frame->height = SPATIAL_HEIGHT;

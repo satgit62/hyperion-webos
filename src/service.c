@@ -157,6 +157,9 @@ void service_init_backends(service_t* service)
             if (settings->histogram_profile != NULL && strlen(settings->histogram_profile) > 0) {
                 setenv("HYPERION_HISTOGRAM_PROFILE", settings->histogram_profile, 1);
             }
+            if (settings->histogram_geometry != NULL && strlen(settings->histogram_geometry) > 0) {
+                setenv("HYPERION_HISTOGRAM_GEOMETRY", settings->histogram_geometry, 1);
+            }
 
             if (settings->drm_fallback) {
                 if (!fallback_backend_initialized && (service->video_backend.name == NULL || strcmp(service->video_backend.name, "libhistogram_backend.so") != 0)) {

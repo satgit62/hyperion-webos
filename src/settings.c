@@ -29,6 +29,7 @@ void settings_init(settings_t* settings)
 
     settings->drm_fallback = true;
     settings->histogram_profile = strdup("default");
+    settings->histogram_geometry = strdup("rectangles");
 }
 
 int settings_load_json(settings_t* settings, jvalue_ref source)
@@ -95,6 +96,12 @@ int settings_load_json(settings_t* settings, jvalue_ref source)
         settings->histogram_profile = strdup(str.m_str);
         jstring_free_buffer(str);
     }
+    if ((value = jobject_get(source, j_cstr_to_buffer("histogramGeometry"))) && jis_string(value)) {
+        free(settings->histogram_geometry);
+        raw_buffer str = jstring_get(value);
+        settings->histogram_geometry = strdup(str.m_str);
+        jstring_free_buffer(str);
+    }
 
     return 0;
 }
@@ -125,6 +132,7 @@ int settings_save_json(settings_t* settings, jvalue_ref target)
 
     jobject_set(target, j_cstr_to_buffer("drmFallback"), jboolean_create(settings->drm_fallback));
     jobject_set(target, j_cstr_to_buffer("histogramProfile"), jstring_create(settings->histogram_profile ? settings->histogram_profile : "default"));
+    jobject_set(target, j_cstr_to_buffer("histogramGeometry"), jstring_create(settings->histogram_geometry ? settings->histogram_geometry : "rectangles"));
 
     return 0;
 }
