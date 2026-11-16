@@ -10,7 +10,7 @@ ExternalProject_Add(flatcc-native
         GIT_REPOSITORY https://github.com/dvidelabs/flatcc.git
         GIT_TAG 29201734bf2d12713a7a1a035d31e5123aac9c93
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        CMAKE_ARGS
+        CMAKE_ARGS -DCMAKE_POLICY_VERSION_MINIMUM=3.5
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DBUILD_SHARED_LIBS=OFF
         -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/native
