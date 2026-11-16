@@ -90,10 +90,14 @@ int service_init(service_t* service, settings_t* settings)
     service->unicapture.callback_data = (void*)service;
     service->unicapture.dump_frames = settings->dump_frames;
 
-    service_init_backends(service);
+
+service_init_backends(service);
 
     return 0;
 }
+
+static capture_backend_t fallback_video_backend;
+static bool fallback_backend_initialized = false;
 
 void service_init_backends(service_t* service)
 {
@@ -131,6 +135,7 @@ void service_init_backends(service_t* service)
         }
     }
 
+
     if (!service->video_backend_initialized) {
         service->unicapture.video_capture = NULL;
 
@@ -150,6 +155,26 @@ void service_init_backends(service_t* service)
                     service->video_backend_initialized = true;
                 }
             }
+
+            if (settings->histogram_profile != NULL && strlen(settings->histogram_profile) > 0) {
+                setenv("HYPERION_HISTOGRAM_PROFILE", settings->histogram_profile, 1);
+            }
+
+            if (settings->drm_fallback) {
+                if (!fallback_backend_initialized &&
+                    (service->video_backend.name == NULL || strcmp(service->video_backend.name, "libhistogram_backend.so") != 0)) {
+                    if (unicapture_init_backend(&config, &fallback_video_backend, "libhistogram_backend.so") == 0) {
+                        INFO("Histogram DRM fallback backend ready (profile: %s).",
+                             settings->histogram_profile ? settings->histogram_profile : "default");
+                        fallback_backend_initialized = true;
+                    } else {
+                        WARN("Histogram DRM fallback backend could not be initialized.");
+                    }
+                } else if (fallback_backend_initialized) {
+                }
+            } else {
+                INFO("Histogram DRM fallback disabled by configuration.");
+            }
         }
     }
 }
@@ -166,6 +191,14 @@ void service_destroy_backends(service_t* service)
         DBG("Cleaning up video backend...");
         DBG("Result: %d", service->video_backend.cleanup(service->video_backend.state));
         service->video_backend_initialized = false;
+    }
+
+    if (service->unicapture.fallback_video_capture != NULL && service->unicapture.fallback_video_capture->cleanup) {
+        DBG("Cleaning up Histogram fallback backend...");
+        service->unicapture.fallback_video_capture->cleanup(service->unicapture.fallback_video_capture->state);
+        free(service->unicapture.fallback_video_capture->name);
+        memset(service->unicapture.fallback_video_capture, 0, sizeof(capture_backend_t));
+        service->unicapture.fallback_video_capture = NULL;
     }
 }
 

@@ -26,6 +26,9 @@ void settings_init(settings_t* settings)
     settings->no_powerstate = false;
 
     settings->dump_frames = false;
+
+    settings->drm_fallback = true;
+    settings->histogram_profile = strdup("default");
 }
 
 int settings_load_json(settings_t* settings, jvalue_ref source)
@@ -84,6 +87,15 @@ int settings_load_json(settings_t* settings, jvalue_ref source)
     if ((value = jobject_get(source, j_cstr_to_buffer("nopowerstate"))) && jis_boolean(value))
         jboolean_get(value, &settings->no_powerstate);
 
+    if ((value = jobject_get(source, j_cstr_to_buffer("drmFallback"))) && jis_boolean(value))
+        jboolean_get(value, &settings->drm_fallback);
+    if ((value = jobject_get(source, j_cstr_to_buffer("histogramProfile"))) && jis_string(value)) {
+        free(settings->histogram_profile);
+        raw_buffer str = jstring_get(value);
+        settings->histogram_profile = strdup(str.m_str);
+        jstring_free_buffer(str);
+    }
+
     return 0;
 }
 
@@ -110,6 +122,9 @@ int settings_save_json(settings_t* settings, jvalue_ref target)
 
     jobject_set(target, j_cstr_to_buffer("nohdr"), jboolean_create(settings->no_hdr));
     jobject_set(target, j_cstr_to_buffer("nopowerstate"), jboolean_create(settings->no_powerstate));
+
+    jobject_set(target, j_cstr_to_buffer("drmFallback"), jboolean_create(settings->drm_fallback));
+    jobject_set(target, j_cstr_to_buffer("histogramProfile"), jstring_create(settings->histogram_profile ? settings->histogram_profile : "default"));
 
     return 0;
 }

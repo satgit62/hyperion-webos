@@ -130,11 +130,13 @@ void* unicapture_run(void* data)
     unicapture_state_t* this = (unicapture_state_t*)data;
     capture_backend_t* ui_capture = this->ui_capture;
     capture_backend_t* video_capture = this->video_capture;
+    capture_backend_t* fallback_video_capture = this->fallback_video_capture;
 
     uint64_t framecounter = 0;
     uint64_t framecounter_start = getticks_us();
 
     uint64_t last_video_start = 0;
+    uint64_t last_fallback_start = 0;
     uint64_t last_ui_start = 0;
 
     converter_t ui_converter;
@@ -203,6 +205,27 @@ void* unicapture_run(void* data)
                 DBG("video_capture acquire_frame failed: %d", ret);
                 video_frame.pixel_format = PIXFMT_INVALID;
             }
+        }
+
+        if (video_frame.pixel_format == PIXFMT_INVALID && fallback_video_capture != NULL) {
+            if (!this->fallback_video_running && (now - last_fallback_start) > 1000000) {
+                last_fallback_start = now;
+                DBG("Attempting Histogram DRM fallback capture init...");
+                if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
+                    INFO("Switched to Histogram DRM fallback capture");
+                    this->fallback_video_running = true;
+                }
+            }
+            if (this->fallback_video_running) {
+                if ((ret = fallback_video_capture->acquire_frame(fallback_video_capture->state, &video_frame)) != 0) {
+                    DBG("fallback_video_capture acquire_frame failed: %d", ret);
+                    video_frame.pixel_format = PIXFMT_INVALID;
+                }
+            }
+        } else if (video_frame.pixel_format != PIXFMT_INVALID && this->fallback_video_running) {
+            INFO("Primary video capture resumed, stopping Histogram fallback");
+            fallback_video_capture->terminate(fallback_video_capture->state);
+            this->fallback_video_running = false;
         }
 
         uint64_t frame_acquired = getticks_us();
@@ -359,7 +382,11 @@ void* unicapture_run(void* data)
         }
 
         if (video_frame.pixel_format != PIXFMT_INVALID) {
-            video_capture->release_frame(video_capture->state, &video_frame);
+            if (this->fallback_video_running && fallback_video_capture != NULL) {
+                fallback_video_capture->release_frame(fallback_video_capture->state, &video_frame);
+            } else if (video_capture != NULL) {
+                video_capture->release_frame(video_capture->state, &video_frame);
+            }
         }
 
         uint64_t frame_released = getticks_us();
@@ -401,6 +428,12 @@ void* unicapture_run(void* data)
         DBG("Terminating Video capture...");
         video_capture->terminate(video_capture->state);
         this->video_capture_running = false;
+    }
+
+    if (this->fallback_video_running && fallback_video_capture != NULL) {
+        DBG("Terminating Histogram fallback capture...");
+        fallback_video_capture->terminate(fallback_video_capture->state);
+        this->fallback_video_running = false;
     }
 
     for (int i = 0; i < MAX_PLANES; i++) {

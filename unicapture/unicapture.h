@@ -81,6 +81,7 @@ typedef int (*unicapture_imagedata_nv12_callback_t)(void* data, int width, int h
 typedef struct _unicapture_state {
     capture_backend_t* ui_capture;
     capture_backend_t* video_capture;
+    capture_backend_t* fallback_video_capture;
 
     bool vsync;
     uint32_t fps;
@@ -91,6 +92,7 @@ typedef struct _unicapture_state {
 
     bool ui_capture_running;
     bool video_capture_running;
+    bool fallback_video_running;
 
     bool vsync_thread_running;
     pthread_t vsync_thread;

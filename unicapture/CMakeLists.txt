@@ -39,3 +39,11 @@ target_include_directories(vtcapture_backend PRIVATE ${UNICAPTURE_INCLUDE_DIRS} 
 target_link_libraries(vtcapture_backend vtcapture)
 
 add_dependencies(unicapture gm_backend dile_vt_backend halgal_backend vtcapture_backend)
+
+add_library(histogram_backend SHARED
+        backends/libhistogram.c
+)
+target_include_directories(histogram_backend PRIVATE ${UNICAPTURE_INCLUDE_DIRS} backends)
+target_link_libraries(histogram_backend dl m)
+
+add_dependencies(unicapture histogram_backend)

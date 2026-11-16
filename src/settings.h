@@ -32,6 +32,9 @@ typedef struct _settings_t {
 
     bool no_hdr;
     bool no_powerstate;
+
+    bool drm_fallback;
+    char* histogram_profile;
 } settings_t;
 
 void settings_init(settings_t*);

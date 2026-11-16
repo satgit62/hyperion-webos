@@ -45,6 +45,8 @@ static const struct option long_options[] = {
     { "config", required_argument, 0, 'c' },
     { "dump-frames", no_argument, 0, 'd' },
     { "nv12", no_argument, 0, 't' },
+    { "no-drm-fallback", no_argument, 0, 'D' },
+    { "histogram-profile", required_argument, 0, 'H' },
     { 0, 0, 0, 0 },
 };
 
@@ -72,6 +74,8 @@ static void print_usage()
     printf("  -c, --config=PATH     Absolute path for configfile to load settings. Giving additional runtime arguments will overwrite loaded ones.\n");
     printf("  -d, --dump-frames     Dump raw video frames to /tmp/.\n");
     printf("  -t, --nv12            Send NV12 frames\n");
+    printf("  -D, --no-drm-fallback Disable automatic Histogram DRM fallback\n");
+    printf("  -H, --histogram-profile=NAME Select Histogram TV profile (default, g4, c2, c3, b-series)\n");
     printf("\n");
     printf("  -v, --verbose         Enable verbose logging.\n");
     printf("  -h, --help            Print this list of arguments.\n");
@@ -83,7 +87,7 @@ static int parse_options(int argc, char* argv[])
     int opt, longindex;
     int ret;
 
-    while ((opt = getopt_long(argc, argv, "x:y:a:p:f:b:u:q:c:lvnhdVGrst", long_options, &longindex)) != -1) {
+    while ((opt = getopt_long(argc, argv, "x:y:a:p:f:b:u:q:c:H:lvnhdVGrstD", long_options, &longindex)) != -1) {
         switch (opt) {
         case 'x':
             settings.width = atoi(optarg);
@@ -124,6 +128,13 @@ static int parse_options(int argc, char* argv[])
             break;
         case 't':
             settings.send_nv12 = true;
+            break;
+        case 'D':
+            settings.drm_fallback = false;
+            break;
+        case 'H':
+            free(settings.histogram_profile);
+            settings.histogram_profile = strdup(optarg);
             break;
         case 'v':
             log_set_level(Debug);
