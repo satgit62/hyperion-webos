@@ -90,8 +90,7 @@ int service_init(service_t* service, settings_t* settings)
     service->unicapture.callback_data = (void*)service;
     service->unicapture.dump_frames = settings->dump_frames;
 
-
-service_init_backends(service);
+    service_init_backends(service);
 
     return 0;
 }
@@ -135,7 +134,6 @@ void service_init_backends(service_t* service)
         }
     }
 
-
     if (!service->video_backend_initialized) {
         service->unicapture.video_capture = NULL;
 
@@ -161,11 +159,10 @@ void service_init_backends(service_t* service)
             }
 
             if (settings->drm_fallback) {
-                if (!fallback_backend_initialized &&
-                    (service->video_backend.name == NULL || strcmp(service->video_backend.name, "libhistogram_backend.so") != 0)) {
+                if (!fallback_backend_initialized && (service->video_backend.name == NULL || strcmp(service->video_backend.name, "libhistogram_backend.so") != 0)) {
                     if (unicapture_init_backend(&config, &fallback_video_backend, "libhistogram_backend.so") == 0) {
                         INFO("Histogram DRM fallback backend ready (profile: %s).",
-                             settings->histogram_profile ? settings->histogram_profile : "default");
+                            settings->histogram_profile ? settings->histogram_profile : "default");
                         fallback_backend_initialized = true;
                     } else {
                         WARN("Histogram DRM fallback backend could not be initialized.");
