@@ -106,7 +106,13 @@ void* unicapture_vsync_handler(void* data)
     INFO("vsync thread starting...");
 
     while (this->vsync_thread_running) {
-        if (this->vsync && this->video_capture_running && this->video_capture->wait) {
+        if (this->vsync && this->fallback_video_running && this->fallback_video_capture && this->fallback_video_capture->wait) {
+            if ((this->fallback_video_capture->wait(this->fallback_video_capture->state)) == -99) {
+                INFO("Stopping Histogram fallback capture for restart.");
+                this->fallback_video_capture->terminate(this->fallback_video_capture->state);
+                this->fallback_video_running = false;
+            }
+        } else if (this->vsync && this->video_capture_running && this->video_capture->wait) {
             if ((this->video_capture->wait(this->video_capture->state)) == -99) { // stop video capture (will be started again in unicapture_run())
                 INFO("Stopping video capture.");
                 this->video_capture->terminate(this->video_capture->state);
@@ -177,6 +183,13 @@ void* unicapture_run(void* data)
             if (video_capture->start(video_capture->state) == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
+            } else if (fallback_video_capture != NULL && !this->fallback_video_running && (now - last_fallback_start) > 1000000) {
+                last_fallback_start = now;
+                DBG("Primary video capture unavailable, attempting Histogram DRM fallback...");
+                if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
+                    INFO("Switched to Histogram DRM fallback capture (primary start blocked)");
+                    this->fallback_video_running = true;
+                }
             }
         }
 
