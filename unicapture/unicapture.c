@@ -182,7 +182,13 @@ void* unicapture_run(void* data)
 
         if (drm_fallback_active && fallback_video_capture != NULL && !this->fallback_video_running && (last_fallback_start == 0 || (now - last_fallback_start) > 500000)) {
             last_fallback_start = now;
-            if (fallback_video_capture->start(fallback_video_capture->state) == 0) { INFO("Histogram DRM fallback started"); this->fallback_video_running = true; }
+            if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
+                INFO("Histogram DRM fallback started");
+                this->fallback_video_running = true;
+            } else {
+                WARN("Histogram DRM fallback unsupported or unavailable on this TV, disabling fallback");
+                drm_fallback_active = false;
+            }
         }
         if (!drm_fallback_active && (now - last_video_start) > 1000000 && video_capture != NULL && !this->video_capture_running) {
             last_video_start = now;

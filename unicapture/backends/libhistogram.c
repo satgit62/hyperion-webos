@@ -487,8 +487,6 @@ int capture_start(void* state)
     self->vt_preset(self->handle, 0);
     usleep(150000);
     leave_developer_mode(&guard_pipe, &guard_pid);
-    usleep(150000);
-    leave_developer_mode(&guard_pipe, &guard_pid);
     INFO("histogram_backend: started");
     return 0;
 }
