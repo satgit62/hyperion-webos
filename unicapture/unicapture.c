@@ -143,7 +143,9 @@ void* unicapture_run(void* data)
 
     uint64_t last_video_start = 0;
     uint64_t last_fallback_start = 0;
-    (void)last_fallback_start;
+    uint64_t last_primary_probe = 0;
+    unsigned video_acquire_failures = 0;
+    bool drm_fallback_active = false;
     uint64_t last_ui_start = 0;
 
     converter_t ui_converter;
@@ -178,7 +180,11 @@ void* unicapture_run(void* data)
             }
         }
 
-        if ((now - last_video_start) > 1000000 && video_capture != NULL && !this->video_capture_running) {
+        if (drm_fallback_active && fallback_video_capture != NULL && !this->fallback_video_running && (last_fallback_start == 0 || (now - last_fallback_start) > 500000)) {
+            last_fallback_start = now;
+            if (fallback_video_capture->start(fallback_video_capture->state) == 0) { INFO("Histogram DRM fallback started"); this->fallback_video_running = true; }
+        }
+        if (!drm_fallback_active && (now - last_video_start) > 1000000 && video_capture != NULL && !this->video_capture_running) {
             last_video_start = now;
             DBG("Attempting video capture init...");
             if (video_capture->start(video_capture->state) == 0) {
@@ -218,28 +224,32 @@ void* unicapture_run(void* data)
             if ((ret = video_capture->acquire_frame(video_capture->state, &video_frame)) != 0) {
                 DBG("video_capture acquire_frame failed: %d", ret);
                 video_frame.pixel_format = PIXFMT_INVALID;
+                if (++video_acquire_failures >= 5 && fallback_video_capture != NULL) {
+                    INFO("DRM interruption detected (ret=%d), switching to Histogram fallback...", ret);
+                    video_capture->terminate(video_capture->state);
+                    this->video_capture_running = false;
+                    video_acquire_failures = 0;
+                    drm_fallback_active = true;
+                    last_primary_probe = now;
+                    last_fallback_start = 0;
+                }
+            } else {
+                video_acquire_failures = 0;
+                if (drm_fallback_active) { INFO("Unprotected video recovered"); drm_fallback_active = false; }
             }
         }
 
-        if (video_frame.pixel_format == PIXFMT_INVALID && fallback_video_capture != NULL) {
-            if (!this->fallback_video_running && (now - last_fallback_start) > 1000000) {
-                last_fallback_start = now;
-                DBG("Attempting Histogram DRM fallback capture init...");
-                if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
-                    INFO("Switched to Histogram DRM fallback capture");
-                    this->fallback_video_running = true;
-                }
+        if (drm_fallback_active && fallback_video_capture != NULL) {
+            if (this->fallback_video_running && (ret = fallback_video_capture->acquire_frame(fallback_video_capture->state, &video_frame)) != 0) {
+                DBG("fallback_video_capture acquire_frame failed: %d", ret);
+                video_frame.pixel_format = PIXFMT_INVALID;
             }
-            if (this->fallback_video_running) {
-                if ((ret = fallback_video_capture->acquire_frame(fallback_video_capture->state, &video_frame)) != 0) {
-                    DBG("fallback_video_capture acquire_frame failed: %d", ret);
-                    video_frame.pixel_format = PIXFMT_INVALID;
-                }
+            if ((now - last_primary_probe) > 4000000 && video_capture != NULL) {
+                last_primary_probe = now;
+                if (this->fallback_video_running) { fallback_video_capture->terminate(fallback_video_capture->state); this->fallback_video_running = false; }
+                if (video_capture->start(video_capture->state) == 0) { this->video_capture_running = true; video_acquire_failures = 0; }
+                else { last_fallback_start = 0; }
             }
-        } else if (video_frame.pixel_format != PIXFMT_INVALID && this->fallback_video_running) {
-            INFO("Primary video capture resumed, stopping Histogram fallback");
-            fallback_video_capture->terminate(fallback_video_capture->state);
-            this->fallback_video_running = false;
         }
 
         uint64_t frame_acquired = getticks_us();
