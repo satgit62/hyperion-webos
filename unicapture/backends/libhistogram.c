@@ -473,13 +473,20 @@ int capture_start(void* state)
     }
     g_policy_revoked = 0;
     self->handle = self->vt_init(policy_callback);
-    leave_developer_mode(&guard_pipe, &guard_pid);
-    if (!self->handle) { ERR("histogram_backend: vtCapture_initHistogram failed"); return -1; }
+
+    if (!self->handle) {
+        ERR("histogram_backend: vtCapture_initHistogram failed (errno=%d)", errno);
+        leave_developer_mode(&guard_pipe, &guard_pid);
+        return -1;
+    }
+
     self->preset = 0;
     self->letterbox_mode = 0;
     self->pending_letterbox = -1;
     self->settling = 1;
     self->vt_preset(self->handle, 0);
+    usleep(150000);
+    leave_developer_mode(&guard_pipe, &guard_pid);
     INFO("histogram_backend: started");
     return 0;
 }
