@@ -184,7 +184,7 @@ void* unicapture_run(void* data)
             if (video_capture->start(video_capture->state) == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
-            } else if (fallback_video_capture != NULL && !this->fallback_video_running && (now - last_fallback_start) > 1000) {
+            } else if (fallback_video_capture != NULL && !this->fallback_video_running && (last_fallback_start == 0 || (now - last_fallback_start) > 1000000)) {
                 last_fallback_start = now;
                 DBG("Primary video capture unavailable, attempting Histogram DRM fallback...");
                 if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
