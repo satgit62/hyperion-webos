@@ -82,6 +82,7 @@ typedef struct _unicapture_state {
     capture_backend_t* ui_capture;
     capture_backend_t* video_capture;
     capture_backend_t* fallback_video_capture;
+    cap_backend_config_t video_config;
 
     bool vsync;
     uint32_t fps;

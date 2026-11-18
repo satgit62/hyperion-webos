@@ -109,6 +109,7 @@ void service_init_backends(service_t* service)
     config.quirks = settings->quirks;
 
     const char* const ui_backends[] = { "libgm_backend.so", "libhalgal_backend.so", NULL };
+    service->unicapture.video_config = config;
     const char* const video_backends[] = { "libvtcapture_backend.so", "libdile_vt_backend.so", NULL };
     char backend_name[FILENAME_MAX] = { 0 };
 

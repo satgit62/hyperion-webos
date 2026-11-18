@@ -218,8 +218,13 @@ void* unicapture_run(void* data)
                 DBG("video_capture acquire_frame failed: %d", ret);
                 video_frame.pixel_format = PIXFMT_INVALID;
                 if (++video_acquire_failures >= 1 && fallback_video_capture != NULL) {
-                    INFO("DRM interruption detected (ret=%d), switching to Histogram fallback...", ret);
+                    INFO("DRM interruption detected (ret=%d), releasing primary driver for Histogram fallback...", ret);
                     video_capture->terminate(video_capture->state);
+                    if (video_capture->cleanup && video_capture->state) {
+                        video_capture->cleanup(video_capture->state);
+                        video_capture->state = NULL;
+                    }
+                    usleep(150000);
                     this->video_capture_running = false;
                     video_acquire_failures = 0;
                     drm_fallback_active = true;
@@ -239,8 +244,13 @@ void* unicapture_run(void* data)
             }
             if ((now - last_primary_probe) > 4000000 && video_capture != NULL) {
                 last_primary_probe = now;
-                if (this->fallback_video_running) { fallback_video_capture->terminate(fallback_video_capture->state); this->fallback_video_running = false; }
-                if (video_capture->start(video_capture->state) == 0) {
+                if (this->fallback_video_running) { fallback_video_capture->terminate(fallback_video_capture->state); this->fallback_video_running = false; usleep(150000); }
+                if (video_capture->state == NULL && video_capture->init) {
+                    if (video_capture->init(&this->video_config, &video_capture->state) != 0) {
+                        video_capture->state = NULL;
+                    }
+                }
+                if (video_capture->state != NULL && video_capture->start(video_capture->state) == 0) {
                     frame_info_t probe_frame = { 0 };
                     if (video_capture->acquire_frame(video_capture->state, &probe_frame) == 0 && probe_frame.pixel_format != PIXFMT_INVALID) {
                         if (video_capture->release_frame) video_capture->release_frame(video_capture->state, &probe_frame);
@@ -250,6 +260,11 @@ void* unicapture_run(void* data)
                         drm_fallback_active = false;
                     } else {
                         video_capture->terminate(video_capture->state);
+                        if (video_capture->cleanup && video_capture->state) {
+                            video_capture->cleanup(video_capture->state);
+                            video_capture->state = NULL;
+                        }
+                        usleep(150000);
                         last_fallback_start = 0;
                     }
                 } else {
