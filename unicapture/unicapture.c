@@ -190,13 +190,6 @@ void* unicapture_run(void* data)
             if (video_capture->start(video_capture->state) == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
-            } else if (fallback_video_capture != NULL && !this->fallback_video_running && (last_fallback_start == 0 || (now - last_fallback_start) > 1000000)) {
-                last_fallback_start = now;
-                DBG("Primary video capture unavailable, attempting Histogram DRM fallback...");
-                if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
-                    INFO("Switched to Histogram DRM fallback capture (primary start blocked)");
-                    this->fallback_video_running = true;
-                }
             }
         }
 
@@ -214,7 +207,7 @@ void* unicapture_run(void* data)
         frame_info_t video_frame_converted = { PIXFMT_INVALID };
 
         // Capture frames
-        if (this->ui_capture_running) {
+        if (this->ui_capture_running && !this->fallback_video_running) {
             if ((ret = ui_capture->acquire_frame(ui_capture->state, &ui_frame)) != 0) {
                 ui_frame.pixel_format = PIXFMT_INVALID;
             }
