@@ -166,11 +166,13 @@ void service_init_backends(service_t* service)
                     if (unicapture_init_backend(&config, &fallback_video_backend, "libhistogram_backend.so") == 0) {
                         INFO("Histogram DRM fallback backend ready (profile: %s).",
                             settings->histogram_profile ? settings->histogram_profile : "default");
+                        service->unicapture.fallback_video_capture = &fallback_video_backend;
                         fallback_backend_initialized = true;
                     } else {
                         WARN("Histogram DRM fallback backend could not be initialized.");
                     }
                 } else if (fallback_backend_initialized) {
+                    service->unicapture.fallback_video_capture = &fallback_video_backend;
                 }
             } else {
                 INFO("Histogram DRM fallback disabled by configuration.");
