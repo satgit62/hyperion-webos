@@ -224,7 +224,7 @@ void* unicapture_run(void* data)
             if ((ret = video_capture->acquire_frame(video_capture->state, &video_frame)) != 0) {
                 DBG("video_capture acquire_frame failed: %d", ret);
                 video_frame.pixel_format = PIXFMT_INVALID;
-                if (++video_acquire_failures >= 5 && fallback_video_capture != NULL) {
+                if (++video_acquire_failures >= 1 && fallback_video_capture != NULL) {
                     INFO("DRM interruption detected (ret=%d), switching to Histogram fallback...", ret);
                     video_capture->terminate(video_capture->state);
                     this->video_capture_running = false;
@@ -247,8 +247,21 @@ void* unicapture_run(void* data)
             if ((now - last_primary_probe) > 4000000 && video_capture != NULL) {
                 last_primary_probe = now;
                 if (this->fallback_video_running) { fallback_video_capture->terminate(fallback_video_capture->state); this->fallback_video_running = false; }
-                if (video_capture->start(video_capture->state) == 0) { this->video_capture_running = true; video_acquire_failures = 0; }
-                else { last_fallback_start = 0; }
+                if (video_capture->start(video_capture->state) == 0) {
+                    frame_info_t probe_frame = { 0 };
+                    if (video_capture->acquire_frame(video_capture->state, &probe_frame) == 0 && probe_frame.pixel_format != PIXFMT_INVALID) {
+                        if (video_capture->release_frame) video_capture->release_frame(video_capture->state, &probe_frame);
+                        INFO("Primary video capture confirmed active again, leaving Histogram DRM fallback");
+                        this->video_capture_running = true;
+                        video_acquire_failures = 0;
+                        drm_fallback_active = false;
+                    } else {
+                        video_capture->terminate(video_capture->state);
+                        last_fallback_start = 0;
+                    }
+                } else {
+                    last_fallback_start = 0;
+                }
             }
         }
 
