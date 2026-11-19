@@ -251,7 +251,7 @@ void* unicapture_run(void* data)
                 DBG("fallback_video_capture acquire_frame failed: %d", ret);
                 video_frame.pixel_format = PIXFMT_INVALID;
             }
-            if ((now - last_primary_probe) > 4000000 && video_capture != NULL) {
+            if ((now - last_primary_probe) > 15000000 && video_capture != NULL) {
                 last_primary_probe = now;
                 if (this->fallback_video_running) { fallback_video_capture->terminate(fallback_video_capture->state); this->fallback_video_running = false; usleep(150000); }
                 if (video_capture->state == NULL && video_capture->init) {
