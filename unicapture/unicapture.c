@@ -112,7 +112,7 @@ void* unicapture_vsync_handler(void* data)
                 this->fallback_video_capture->terminate(this->fallback_video_capture->state);
                 this->fallback_video_running = false;
             }
-        } else if (this->vsync && this->video_capture_running && this->video_capture->wait) {
+        } else if (this->vsync && this->video_capture_running && this->video_capture->state != NULL && this->video_capture->wait) {
             if ((this->video_capture->wait(this->video_capture->state)) == -99) { // stop video capture (will be started again in unicapture_run())
                 INFO("Stopping video capture.");
                 this->video_capture->terminate(this->video_capture->state);
@@ -225,13 +225,16 @@ void* unicapture_run(void* data)
                 video_frame.pixel_format = PIXFMT_INVALID;
                 if (++video_acquire_failures >= 1 && fallback_video_capture != NULL) {
                     INFO("DRM interruption detected (ret=%d), releasing primary driver for Histogram fallback...", ret);
+                    pthread_mutex_lock(&this->vsync_lock);
+                    this->video_capture_running = false;
+                    pthread_mutex_unlock(&this->vsync_lock);
+                    usleep(50000);
                     video_capture->terminate(video_capture->state);
                     if (video_capture->cleanup && video_capture->state) {
                         video_capture->cleanup(video_capture->state);
                         video_capture->state = NULL;
                     }
                     usleep(150000);
-                    this->video_capture_running = false;
                     video_acquire_failures = 0;
                     drm_fallback_active = true;
                     last_primary_probe = now;
