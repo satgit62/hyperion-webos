@@ -479,10 +479,17 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
     leave_developer_mode(&gp, &gpid);
     uint32_t d = 1000000 / (self->fps > 0 ? self->fps : 30);
     Histogram hist[16];
+    unsigned empty_ticks = 0;
+    bool ever_populated = false;
     while (!g_policy_revoked) {
         usleep(d); memset(hist, 0, sizeof(hist));
         if (self->vt_get(handle, hist) == 0 && histogram_populated(hist)) {
+            ever_populated = true;
+            empty_ticks = 0;
             if (write(fd, hist, sizeof(hist)) != (ssize_t)sizeof(hist)) break;
+        } else if (ever_populated && ++empty_ticks > 45) {
+            INFO("histogram_backend: stream ended (empty histogram), exiting DRM fallback");
+            break;
         }
     }
     self->vt_finish(handle); close(fd); _exit(0);
