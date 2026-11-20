@@ -144,6 +144,7 @@ void* unicapture_run(void* data)
     uint64_t last_video_start = 0;
     uint64_t last_fallback_start = 0;
     uint64_t last_primary_probe = 0;
+    unsigned home_probe_hits = 0;
     unsigned video_acquire_failures = 0;
     bool drm_fallback_active = false;
     uint64_t last_ui_start = 0;
@@ -186,6 +187,7 @@ void* unicapture_run(void* data)
                 INFO("Histogram DRM fallback started");
                 this->fallback_video_running = true;
                 last_primary_probe = now;
+                home_probe_hits = 0;
             } else {
                 DBG("Histogram DRM fallback waiting for DRM pipeline to settle, will retry...");
             }
@@ -272,7 +274,6 @@ void* unicapture_run(void* data)
                     drm_fallback_active = false;
                 }
             }
-            static unsigned home_probe_hits = 0;
             if ((now - last_primary_probe) > 3000000 && video_capture != NULL) {
                 last_primary_probe = now;
                 if (video_capture->state == NULL && video_capture->init) {

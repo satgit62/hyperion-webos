@@ -130,7 +130,7 @@ int capture_start(void* state)
             fd = open("/dev/forcecapture", O_RDWR);
             if (fd < 0) {
                 ERR("Can't open /dev/forcecapture!");
-                ret = -2;
+                ret = -17;
                 goto err_init;
             }
 
