@@ -477,6 +477,7 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
     usleep(150000);
     self->vt_preset(handle, 0);
     usleep(100000);
+    leave_developer_mode(&gp, &gpid);
     uint32_t d = 1000000 / (self->fps > 0 ? self->fps : 30);
     Histogram hist[16];
     unsigned empty_ticks = 0;
@@ -497,7 +498,6 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
             }
         }
     }
-    leave_developer_mode(&gp, &gpid);
     self->vt_finish(handle); close(fd); _exit(0);
 }
 int capture_start(void* state) {
