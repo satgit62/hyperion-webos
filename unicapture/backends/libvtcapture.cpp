@@ -140,7 +140,7 @@ int capture_start(void* state)
             DBG("Closing /dev/forcecapture");
             close(fd);
         }
-        ret = -2;
+        ret = -17;
         goto err_init;
     } else if (ret == 11) {
 

@@ -639,6 +639,10 @@ int service_register(service_t* service, GMainLoop* loop)
             WARN("videooutput/getStatus call failed: %s", lserror.message);
         }
 
+        if (!LSCall(handlelegacy, "luna://com.webos.applicationManager/getForegroundAppInfo", "{\"subscribe\":true}", foreground_app_callback, (void*)service, NULL, &lserror)) {
+            WARN("applicationManager/getForegroundAppInfo legacy call failed: %s", lserror.message);
+        }
+
         if (!LSCall(handlelegacy, "luna://com.webos.settingsservice/getSystemSettings", "{\"category\":\"picture\",\"subscribe\":true}", picture_callback, (void*)service, NULL, &lserror)) {
             WARN("settingsservice/getSystemSettings call failed: %s", lserror.message);
         }

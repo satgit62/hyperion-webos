@@ -548,9 +548,11 @@ int capture_acquire_frame(void* state, frame_info_t* frame) {
         }
     }
     if (!got_new) {
-        if (!has_last || ++stale_reads > 20) {
+        if (!has_last) return -2;
+        if (++stale_reads > 30) {
             has_last = false;
-            return -2;
+            stale_reads = 0;
+            return -1;
         }
     }
     memcpy(hist, last_hist, sizeof(hist));
