@@ -271,7 +271,42 @@ void* unicapture_run(void* data)
                     drm_fallback_active = false;
                 }
             }
-            if (false && (now - last_primary_probe) > 15000000 && video_capture != NULL) {
+            if ((now - last_primary_probe) > 3000000 && video_capture != NULL) {
+                last_primary_probe = now;
+                /* Nicht-destruktiver Check: Worker laeuft ungestoert weiter, waehrend wir pruefen,
+                   ob DRM (rc == -17) noch aktiv ist oder ob wir wieder auf Home (-1) / YouTube (0) sind */
+                if (video_capture->state == NULL && video_capture->init) {
+                    if (video_capture->init(&this->video_config, &video_capture->state) != 0) {
+                        video_capture->state = NULL;
+                    }
+                }
+                int probe_rc = (video_capture->state != NULL) ? video_capture->start(video_capture->state) : -17;
+                if (probe_rc == 0) {
+                    INFO("Unprotected video active again, switching back from Histogram to primary video capture");
+                    if (this->fallback_video_running) {
+                        fallback_video_capture->terminate(fallback_video_capture->state);
+                        this->fallback_video_running = false;
+                    }
+                    drm_fallback_active = false;
+                    this->video_capture_running = true;
+                    video_acquire_failures = 0;
+                } else if (probe_rc != -17) {
+                    INFO("DRM session ended (Home/UI active, rc=%d), returning to UI capture", probe_rc);
+                    if (this->fallback_video_running) {
+                        fallback_video_capture->terminate(fallback_video_capture->state);
+                        this->fallback_video_running = false;
+                    }
+                    drm_fallback_active = false;
+                    video_acquire_failures = 0;
+                } else {
+                    /* DRM (rc == -17) laeuft noch: Driver wieder freigeben, Worker laeuft unterbrechungsfrei weiter */
+                    if (video_capture->cleanup && video_capture->state != NULL) {
+                        video_capture->cleanup(video_capture->state);
+                        video_capture->state = NULL;
+                    }
+                }
+            }
+            if (false) {
                 last_primary_probe = now;
                 if (this->fallback_video_running) { fallback_video_capture->terminate(fallback_video_capture->state); this->fallback_video_running = false; usleep(150000); }
                 if (video_capture->state == NULL && video_capture->init) {
