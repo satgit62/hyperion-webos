@@ -274,7 +274,7 @@ void* unicapture_run(void* data)
                     drm_fallback_active = false;
                 }
             }
-            if ((now - last_primary_probe) > 3000000 && video_capture != NULL) {
+            if (false && (now - last_primary_probe) > 3000000 && video_capture != NULL) {
                 last_primary_probe = now;
                 if (video_capture->state == NULL && video_capture->init) {
                     if (video_capture->init(&this->video_config, &video_capture->state) != 0) {

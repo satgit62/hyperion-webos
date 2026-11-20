@@ -490,7 +490,7 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
             if (write(fd, hist, sizeof(hist)) != (ssize_t)sizeof(hist)) break;
         } else {
             empty_ticks++;
-            if ((ever_populated && empty_ticks >= 20) || (!ever_populated && empty_ticks >= 90)) {
+            if ((ever_populated && empty_ticks >= 120) || (!ever_populated && empty_ticks >= 90)) {
                 INFO("histogram_backend: stream ended or inactive (rc=%d, ticks=%u), exiting DRM fallback", rc, empty_ticks);
                 break;
             }
