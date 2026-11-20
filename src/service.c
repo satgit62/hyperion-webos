@@ -190,7 +190,7 @@ void service_destroy_backends(service_t* service)
         service->ui_backend_initialized = false;
     }
 
-    if (service->video_backend_initialized && service->video_backend.cleanup) {
+    if (service->video_backend_initialized && service->video_backend.cleanup && service->video_backend.state != NULL) {
         DBG("Cleaning up video backend...");
         DBG("Result: %d", service->video_backend.cleanup(service->video_backend.state));
         service->video_backend_initialized = false;
