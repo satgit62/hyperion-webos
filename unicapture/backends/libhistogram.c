@@ -483,13 +483,17 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
     bool ever_populated = false;
     while (!g_policy_revoked) {
         usleep(d); memset(hist, 0, sizeof(hist));
-        if (self->vt_get(handle, hist) == 0 && histogram_populated(hist)) {
+        int rc = self->vt_get(handle, hist);
+        if (rc == 0 && histogram_populated(hist)) {
             ever_populated = true;
             empty_ticks = 0;
             if (write(fd, hist, sizeof(hist)) != (ssize_t)sizeof(hist)) break;
-        } else if (ever_populated && ++empty_ticks > 45) {
-            INFO("histogram_backend: stream ended (empty histogram), exiting DRM fallback");
-            break;
+        } else {
+            empty_ticks++;
+            if ((ever_populated && empty_ticks >= 20) || (!ever_populated && empty_ticks >= 90)) {
+                INFO("histogram_backend: stream ended or inactive (rc=%d, ticks=%u), exiting DRM fallback", rc, empty_ticks);
+                break;
+            }
         }
     }
     self->vt_finish(handle); close(fd); _exit(0);
@@ -522,10 +526,34 @@ int capture_acquire_frame(void* state, frame_info_t* frame) {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
     if (self->worker_pid <= 0 || self->worker_fd < 0) return -1;
     uint64_t now = now_ms(); (void)now;
-    Histogram hist[16]; memset(hist, 0, sizeof(hist));
-    ssize_t n = read(self->worker_fd, hist, sizeof(hist));
-    if (n == 0) return -1;
-    if (n != (ssize_t)sizeof(hist)) return -2;
+    static Histogram last_hist[16];
+    static bool has_last = false;
+    static unsigned stale_reads = 0;
+    Histogram hist[16];
+    bool got_new = false;
+    while (1) {
+        Histogram tmp[16];
+        ssize_t n = read(self->worker_fd, tmp, sizeof(tmp));
+        if (n == (ssize_t)sizeof(tmp)) {
+            memcpy(last_hist, tmp, sizeof(tmp));
+            has_last = true;
+            got_new = true;
+            stale_reads = 0;
+        } else if (n == 0) {
+            has_last = false;
+            stale_reads = 0;
+            return -1;
+        } else {
+            break;
+        }
+    }
+    if (!got_new) {
+        if (!has_last || ++stale_reads > 20) {
+            has_last = false;
+            return -2;
+        }
+    }
+    memcpy(hist, last_hist, sizeof(hist));
     unsigned black_percent[16];
     unsigned char srgb_eval[16][3];
     float lin_rgb[16][3];
