@@ -204,27 +204,20 @@ void* unicapture_run(void* data)
                     video_capture->state = NULL;
                 }
             }
-            if (video_capture->state != NULL && video_capture->start(video_capture->state) == 0) {
+            int start_rc = (video_capture->state != NULL) ? video_capture->start(video_capture->state) : -1;
+            if (start_rc == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
-            } else if (fallback_video_capture != NULL && !this->fallback_video_running && (last_fallback_start == 0 || (now - last_fallback_start) > 3000000)) {
-                /* Home -> Netflix direkt (ohne vorheriges ungeschuetztes Video):
-                   Pruefen ob Histogramm-Hardware aktive Videodaten hat */
-                last_fallback_start = now;
-                if (video_capture->state != NULL) {
-                    video_capture->terminate(video_capture->state);
-                    if (video_capture->cleanup) {
-                        video_capture->cleanup(video_capture->state);
-                        video_capture->state = NULL;
-                    }
-                    usleep(150000);
+            } else if (start_rc == -17 && fallback_video_capture != NULL && !this->fallback_video_running) {
+                INFO("DRM detected at video capture start (rc=-17), releasing driver for Histogram fallback...");
+                if (video_capture->cleanup && video_capture->state != NULL) {
+                    video_capture->cleanup(video_capture->state);
+                    video_capture->state = NULL;
                 }
-                if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
-                    INFO("Histogram DRM fallback active (direct DRM app launch)");
-                    this->fallback_video_running = true;
-                    drm_fallback_active = true;
-                    last_primary_probe = now;
-                }
+                usleep(150000);
+                drm_fallback_active = true;
+                last_primary_probe = now;
+                last_fallback_start = 0;
             }
         }
 
