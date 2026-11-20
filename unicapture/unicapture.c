@@ -182,18 +182,11 @@ void* unicapture_run(void* data)
 
         if (drm_fallback_active && fallback_video_capture != NULL && !this->fallback_video_running && (last_fallback_start == 0 || (now - last_fallback_start) > 500000)) {
             last_fallback_start = now;
-            int fb_rc = -1;
-            for (int attempt = 0; attempt < 3; attempt++) {
-                if (attempt > 0) usleep(300000);
-                fb_rc = fallback_video_capture->start(fallback_video_capture->state);
-                if (fb_rc == 0) break;
-            }
-            if (fb_rc == 0) {
+            if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
                 INFO("Histogram DRM fallback started");
                 this->fallback_video_running = true;
             } else {
-                WARN("Histogram DRM fallback unavailable after retries, returning to UI/primary capture");
-                drm_fallback_active = false;
+                DBG("Histogram DRM fallback waiting for DRM pipeline to settle, will retry...");
             }
         }
         if (!drm_fallback_active && (now - last_video_start) > 1000000 && video_capture != NULL && !this->video_capture_running) {
