@@ -182,20 +182,49 @@ void* unicapture_run(void* data)
 
         if (drm_fallback_active && fallback_video_capture != NULL && !this->fallback_video_running && (last_fallback_start == 0 || (now - last_fallback_start) > 500000)) {
             last_fallback_start = now;
-            if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
+            int fb_rc = -1;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                if (attempt > 0) usleep(300000);
+                fb_rc = fallback_video_capture->start(fallback_video_capture->state);
+                if (fb_rc == 0) break;
+            }
+            if (fb_rc == 0) {
                 INFO("Histogram DRM fallback started");
                 this->fallback_video_running = true;
             } else {
-                WARN("Histogram DRM fallback unsupported or unavailable on this TV, disabling fallback");
+                WARN("Histogram DRM fallback unavailable after retries, returning to UI/primary capture");
                 drm_fallback_active = false;
             }
         }
         if (!drm_fallback_active && (now - last_video_start) > 1000000 && video_capture != NULL && !this->video_capture_running) {
             last_video_start = now;
             DBG("Attempting video capture init...");
-            if (video_capture->start(video_capture->state) == 0) {
+            if (video_capture->state == NULL && video_capture->init) {
+                if (video_capture->init(&this->video_config, &video_capture->state) != 0) {
+                    video_capture->state = NULL;
+                }
+            }
+            if (video_capture->state != NULL && video_capture->start(video_capture->state) == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
+            } else if (fallback_video_capture != NULL && !this->fallback_video_running && (last_fallback_start == 0 || (now - last_fallback_start) > 3000000)) {
+                /* Home -> Netflix direkt (ohne vorheriges ungeschuetztes Video):
+                   Pruefen ob Histogramm-Hardware aktive Videodaten hat */
+                last_fallback_start = now;
+                if (video_capture->state != NULL) {
+                    video_capture->terminate(video_capture->state);
+                    if (video_capture->cleanup) {
+                        video_capture->cleanup(video_capture->state);
+                        video_capture->state = NULL;
+                    }
+                    usleep(150000);
+                }
+                if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
+                    INFO("Histogram DRM fallback active (direct DRM app launch)");
+                    this->fallback_video_running = true;
+                    drm_fallback_active = true;
+                    last_primary_probe = now;
+                }
             }
         }
 
