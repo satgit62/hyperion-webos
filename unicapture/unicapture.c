@@ -266,7 +266,7 @@ void* unicapture_run(void* data)
         }
 
         if (drm_fallback_active && fallback_video_capture != NULL) {
-            if (this->app_switched) {
+            if (this->app_switched && !this->drm_app_foreground) {
                 this->app_switched = false;
                 INFO("Foreground app changed, exiting Histogram DRM fallback to restore UI/video capture");
                 if (this->fallback_video_running) {

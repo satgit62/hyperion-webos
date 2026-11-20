@@ -343,8 +343,8 @@ static void dark_color_filter(unsigned char color[3])
     for (unsigned c = 1; c < 3; c++) {
         if (color[c] > peak) peak = color[c];
     }
-    if (peak >= 32) return;
-    unsigned gain = peak > 16 ? peak - 16 : 0;
+    if (peak >= 18) return;
+    unsigned gain = peak > 6 ? peak - 6 : 0;
     for (unsigned c = 0; c < 3; c++) {
         color[c] = (unsigned char)((color[c] * gain + 8) / 16);
     }
@@ -474,8 +474,9 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
     g_policy_revoked = 0;
     void* handle = self->vt_init(policy_callback);
     if (!handle) { ERR("histogram_backend: vtCapture_initHistogram failed in worker (errno=%d)", errno); leave_developer_mode(&gp, &gpid); close(fd); _exit(1); }
-    self->vt_preset(handle, 0);
     usleep(150000);
+    self->vt_preset(handle, 0);
+    usleep(100000);
     leave_developer_mode(&gp, &gpid);
     uint32_t d = 1000000 / (self->fps > 0 ? self->fps : 30);
     Histogram hist[16];
