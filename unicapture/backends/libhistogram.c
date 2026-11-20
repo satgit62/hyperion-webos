@@ -455,6 +455,8 @@ int capture_init(cap_backend_config_t* config, void** state_p)
 
 
 
+int capture_terminate(void* state);
+
 int capture_cleanup(void* state)
 {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
