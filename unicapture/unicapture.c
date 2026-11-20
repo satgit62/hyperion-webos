@@ -205,7 +205,7 @@ void* unicapture_run(void* data)
             if (start_rc == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
-            } else if (start_rc == -17 && fallback_video_capture != NULL && !this->fallback_video_running) {
+            } else if ((start_rc == -17 || this->drm_app_foreground) && fallback_video_capture != NULL && !this->fallback_video_running) {
                 INFO("DRM detected at video capture start (rc=-17), releasing driver for Histogram fallback...");
                 if (video_capture->cleanup && video_capture->state != NULL) {
                     video_capture->cleanup(video_capture->state);

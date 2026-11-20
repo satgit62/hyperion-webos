@@ -504,6 +504,20 @@ static bool videooutput_callback(LSHandle* sh __attribute__((unused)), LSMessage
     return true;
 }
 
+static bool is_drm_streaming_app(const char* app_id, size_t len)
+{
+    if (!app_id || len == 0)
+        return false;
+    char buf[128];
+    size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+    for (size_t i = 0; i < n; i++) {
+        char c = app_id[i];
+        buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+    }
+    buf[n] = '\0';
+    return strstr(buf, "netflix") != NULL || strstr(buf, "amazon") != NULL || strstr(buf, "primevideo") != NULL || strstr(buf, "disney") != NULL || strstr(buf, "appletv") != NULL || strstr(buf, "hbo") != NULL || strstr(buf, "max") != NULL || strstr(buf, "paramount") != NULL || strstr(buf, "peacock") != NULL || strstr(buf, "hulu") != NULL || strstr(buf, "skyshowtime") != NULL || strstr(buf, "dazn") != NULL || strstr(buf, "joyn") != NULL || strstr(buf, "rtlplus") != NULL || strstr(buf, "wow") != NULL || strstr(buf, "rakuten") != NULL || strstr(buf, "crunchyroll") != NULL || strstr(buf, "plex") != NULL;
+}
+
 static bool foreground_app_callback(LSHandle* sh __attribute__((unused)), LSMessage* msg, void* data)
 {
     JSchemaInfo schema;
@@ -524,6 +538,7 @@ static bool foreground_app_callback(LSHandle* sh __attribute__((unused)), LSMess
                 INFO("Foreground app switched: %s -> %.*s", last_app, (int)app_buf.m_len, app_buf.m_str);
                 service->unicapture.app_switched = true;
             }
+            service->unicapture.drm_app_foreground = is_drm_streaming_app(app_buf.m_str, app_buf.m_len);
             snprintf(last_app, sizeof(last_app), "%.*s", (int)app_buf.m_len, app_buf.m_str);
         }
         jstring_free_buffer(app_buf);
