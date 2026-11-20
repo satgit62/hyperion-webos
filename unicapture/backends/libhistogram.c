@@ -91,6 +91,8 @@ typedef struct {
     int (*vt_finish)(void*);
 
     void* handle;
+    pid_t worker_pid;
+    int worker_fd;
     uint32_t fps;
     int preset;
     unsigned settling;
@@ -441,6 +443,8 @@ int capture_init(cap_backend_config_t* config, void** state_p)
     build_spatial_mixes(self, rim, rim_count);
 
     self->fps = (config && config->fps > 0) ? config->fps : 30;
+    self->worker_pid = -1;
+    self->worker_fd = -1;
     self->pending_letterbox = -1;
     *state_p = self;
     INFO("histogram_backend: initialized (profile=%s, geometry=%s, linear-light)",
@@ -455,71 +459,64 @@ int capture_cleanup(void* state)
 {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
     if (!self) return 0;
-    if (self->handle) { self->vt_finish(self->handle); self->handle = NULL; }
+    capture_terminate(self);
     if (self->vt_lib) dlclose(self->vt_lib);
     free(self->rgb_buffer);
     free(self);
     return 0;
 }
 
-int capture_start(void* state)
-{
-    histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (self->handle) return 0;
-    int guard_pipe = -1;
-    pid_t guard_pid = -1;
-    if (!enter_developer_mode(&guard_pipe, &guard_pid)) {
-        WARN("histogram_backend: could not create vt_devmode marker");
-    }
+static void worker_loop(histogram_backend_state_t* self, int fd) {
+    int gp = -1; pid_t gpid = -1;
+    enter_developer_mode(&gp, &gpid);
     g_policy_revoked = 0;
-    self->handle = self->vt_init(policy_callback);
-
-    if (!self->handle) {
-        ERR("histogram_backend: vtCapture_initHistogram failed (errno=%d)", errno);
-        leave_developer_mode(&guard_pipe, &guard_pid);
-        return -1;
-    }
-
-    self->preset = 0;
-    self->letterbox_mode = 0;
-    self->pending_letterbox = -1;
-    self->settling = 1;
-    self->vt_preset(self->handle, 0);
+    void* handle = self->vt_init(policy_callback);
+    if (!handle) { ERR("histogram_backend: vtCapture_initHistogram failed in worker (errno=%d)", errno); leave_developer_mode(&gp, &gpid); close(fd); _exit(1); }
+    self->vt_preset(handle, 0);
     usleep(150000);
-    leave_developer_mode(&guard_pipe, &guard_pid);
-    INFO("histogram_backend: started");
+    leave_developer_mode(&gp, &gpid);
+    uint32_t d = 1000000 / (self->fps > 0 ? self->fps : 30);
+    Histogram hist[16];
+    while (!g_policy_revoked) {
+        usleep(d); memset(hist, 0, sizeof(hist));
+        if (self->vt_get(handle, hist) == 0 && histogram_populated(hist)) {
+            if (write(fd, hist, sizeof(hist)) != (ssize_t)sizeof(hist)) break;
+        }
+    }
+    self->vt_finish(handle); close(fd); _exit(0);
+}
+int capture_start(void* state) {
+    histogram_backend_state_t* self = (histogram_backend_state_t*)state;
+    if (self->worker_pid > 0) return 0;
+    int fds[2]; if (pipe(fds) != 0) return -1;
+    pid_t pid = fork();
+    if (pid < 0) { close(fds[0]); close(fds[1]); return -1; }
+    if (pid == 0) { close(fds[0]); worker_loop(self, fds[1]); _exit(0); }
+    close(fds[1]);
+    fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL, 0) | O_NONBLOCK);
+    usleep(250000);
+    int st = 0;
+    if (waitpid(pid, &st, WNOHANG) == pid) { close(fds[0]); ERR("histogram_backend: worker exited immediately"); return -1; }
+    self->worker_pid = pid; self->worker_fd = fds[0];
+    INFO("histogram_backend: started (isolated worker pid=%d)", (int)pid);
     return 0;
 }
-
-int capture_terminate(void* state)
-{
+int capture_terminate(void* state) {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (self->handle) { self->vt_finish(self->handle); self->handle = NULL; }
+    if (self->worker_fd >= 0) { close(self->worker_fd); self->worker_fd = -1; }
+    if (self->worker_pid > 0) { kill(self->worker_pid, SIGTERM); int st = 0; waitpid(self->worker_pid, &st, 0); self->worker_pid = -1; }
     INFO("histogram_backend: terminated");
     return 0;
 }
-
-int capture_wait(void* state)
-{
+int capture_wait(void* state) { histogram_backend_state_t* self = (histogram_backend_state_t*)state; usleep(1000000 / self->fps); return 0; }
+int capture_acquire_frame(void* state, frame_info_t* frame) {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (g_policy_revoked) { WARN("histogram_backend: LG policy revoked capture"); return -99; }
-    usleep(1000000 / self->fps);
-    return 0;
-}
-
-int capture_acquire_frame(void* state, frame_info_t* frame)
-{
-    histogram_backend_state_t* self = (histogram_backend_state_t*)state;
-    if (!self->handle || g_policy_revoked) return -1;
-    uint64_t now = now_ms();
-    if (self->settling > 0) { self->settling--; return -2; }
-    if (self->letterbox_mode && self->preset == 1 && now >= self->next_border_probe) {
-        if (self->vt_preset(self->handle, 0) == 0) { self->preset = 0; self->settling = 2; }
-        return -2;
-    }
-    Histogram hist[16];
-    memset(hist, 0, sizeof(hist));
-    if (self->vt_get(self->handle, hist) != 0 || !histogram_populated(hist)) return -3;
+    if (self->worker_pid <= 0 || self->worker_fd < 0) return -1;
+    uint64_t now = now_ms(); (void)now;
+    Histogram hist[16]; memset(hist, 0, sizeof(hist));
+    ssize_t n = read(self->worker_fd, hist, sizeof(hist));
+    if (n == 0) return -1;
+    if (n != (ssize_t)sizeof(hist)) return -2;
     unsigned black_percent[16];
     unsigned char srgb_eval[16][3];
     float lin_rgb[16][3];
