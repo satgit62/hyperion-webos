@@ -477,7 +477,6 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
     usleep(150000);
     self->vt_preset(handle, 0);
     usleep(100000);
-    leave_developer_mode(&gp, &gpid);
     uint32_t d = 1000000 / (self->fps > 0 ? self->fps : 30);
     Histogram hist[16];
     unsigned empty_ticks = 0;
@@ -486,17 +485,19 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
         usleep(d); memset(hist, 0, sizeof(hist));
         int rc = self->vt_get(handle, hist);
         if (rc == 0 && histogram_populated(hist)) {
+            if (!ever_populated) INFO("histogram_backend: first active video histogram frame captured!");
             ever_populated = true;
             empty_ticks = 0;
             if (write(fd, hist, sizeof(hist)) != (ssize_t)sizeof(hist)) break;
         } else {
             empty_ticks++;
-            if ((ever_populated && empty_ticks >= 120) || (!ever_populated && empty_ticks >= 90)) {
+            if ((ever_populated && empty_ticks >= 120) || (!ever_populated && empty_ticks >= 600)) {
                 INFO("histogram_backend: stream ended or inactive (rc=%d, ticks=%u), exiting DRM fallback", rc, empty_ticks);
                 break;
             }
         }
     }
+    leave_developer_mode(&gp, &gpid);
     self->vt_finish(handle); close(fd); _exit(0);
 }
 int capture_start(void* state) {
