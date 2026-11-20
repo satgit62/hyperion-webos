@@ -504,6 +504,34 @@ static bool videooutput_callback(LSHandle* sh __attribute__((unused)), LSMessage
     return true;
 }
 
+static bool foreground_app_callback(LSHandle* sh __attribute__((unused)), LSMessage* msg, void* data)
+{
+    JSchemaInfo schema;
+    jvalue_ref parsed;
+    service_t* service = (service_t*)data;
+    static char last_app[128] = { 0 };
+
+    jschema_info_init(&schema, jschema_all(), NULL, NULL);
+    parsed = jdom_parse(j_cstr_to_buffer(LSMessageGetPayload(msg)), DOMOPT_NOOPT, &schema);
+    if (jis_null(parsed) || !jis_valid(parsed)) {
+        return false;
+    }
+    jvalue_ref app_id_ref = jobject_get(parsed, j_cstr_to_buffer("appId"));
+    if (!jis_null(app_id_ref) && jis_valid(app_id_ref) && jis_string(app_id_ref)) {
+        raw_buffer app_buf = jstring_get(app_id_ref);
+        if (app_buf.m_str != NULL && app_buf.m_len > 0) {
+            if (last_app[0] != '\0' && strncmp(last_app, app_buf.m_str, sizeof(last_app) - 1) != 0) {
+                INFO("Foreground app switched: %s -> %.*s", last_app, (int)app_buf.m_len, app_buf.m_str);
+                service->unicapture.app_switched = true;
+            }
+            snprintf(last_app, sizeof(last_app), "%.*s", (int)app_buf.m_len, app_buf.m_str);
+        }
+        jstring_free_buffer(app_buf);
+    }
+    j_release(&parsed);
+    return true;
+}
+
 static bool picture_callback(LSHandle* sh __attribute__((unused)), LSMessage* msg, void* data)
 {
     JSchemaInfo schema;
@@ -588,6 +616,10 @@ int service_register(service_t* service, GMainLoop* loop)
 
     if (!LSCall(handle, "luna://com.webos.service.videooutput/getStatus", "{\"subscribe\":true}", videooutput_callback, (void*)service, NULL, &lserror)) {
         WARN("videooutput/getStatus call failed: %s", lserror.message);
+    }
+
+    if (!LSCall(handle, "luna://com.webos.applicationManager/getForegroundAppInfo", "{\"subscribe\":true}", foreground_app_callback, (void*)service, NULL, &lserror)) {
+        WARN("applicationManager/getForegroundAppInfo call failed: %s", lserror.message);
     }
 
     if (!LSCall(handle, "luna://com.webos.settingsservice/getSystemSettings", "{\"category\":\"picture\",\"subscribe\":true}", picture_callback, (void*)service, NULL, &lserror)) {

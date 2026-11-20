@@ -185,6 +185,7 @@ void* unicapture_run(void* data)
             last_fallback_start = now;
             if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
                 INFO("Histogram DRM fallback started");
+                this->app_switched = false;
                 this->fallback_video_running = true;
                 last_primary_probe = now;
                 home_probe_hits = 0;
@@ -264,6 +265,18 @@ void* unicapture_run(void* data)
             }
         }
 
+        if (drm_fallback_active && fallback_video_capture != NULL) {
+            if (this->app_switched) {
+                this->app_switched = false;
+                INFO("Foreground app changed, exiting Histogram DRM fallback to restore UI/video capture");
+                if (this->fallback_video_running) {
+                    fallback_video_capture->terminate(fallback_video_capture->state);
+                    this->fallback_video_running = false;
+                }
+                drm_fallback_active = false;
+                video_acquire_failures = 0;
+            }
+        }
         if (drm_fallback_active && fallback_video_capture != NULL) {
             if (this->fallback_video_running && (ret = fallback_video_capture->acquire_frame(fallback_video_capture->state, &video_frame)) != 0) {
                 video_frame.pixel_format = PIXFMT_INVALID;
