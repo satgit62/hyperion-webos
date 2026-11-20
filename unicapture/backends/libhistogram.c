@@ -578,15 +578,19 @@ int capture_acquire_frame(void* state, frame_info_t* frame) {
             srgb_eval[i][c] = encode_linear(self, mean_lin);
         }
     }
-    if (self->preset == 0) {
-        int candidate = letterbox_candidate(black_percent, srgb_eval);
-        if (candidate < 0) self->pending_letterbox = -1;
-        else if (candidate != self->pending_letterbox) { self->pending_letterbox = candidate; self->candidate_since = now; }
-        else if ((unsigned)candidate != self->letterbox_mode && now - self->candidate_since >= 2000) self->letterbox_mode = (unsigned)candidate;
-        if (self->letterbox_mode) {
-            if (self->vt_preset(self->handle, 1) == 0) { self->preset = 1; self->settling = 2; self->next_border_probe = now + 2000; }
-            return -2;
-        }
+    int candidate = letterbox_candidate(black_percent, srgb_eval);
+    if (candidate < 0) self->pending_letterbox = -1;
+    else if (candidate != self->pending_letterbox) { self->pending_letterbox = candidate; self->candidate_since = now; }
+    else if ((unsigned)candidate != self->letterbox_mode && now - self->candidate_since >= 2000) self->letterbox_mode = (unsigned)candidate;
+
+    if (self->letterbox_mode) {
+        /* 21:9 Letterbox-Balken oben/unten ausblenden, ohne vt_preset(NULL) aufzurufen */
+        srgb_eval[3][0] = srgb_eval[6][0];  srgb_eval[3][1] = srgb_eval[6][1];  srgb_eval[3][2] = srgb_eval[6][2];
+        srgb_eval[11][0] = srgb_eval[2][0]; srgb_eval[11][1] = srgb_eval[2][1]; srgb_eval[11][2] = srgb_eval[2][2];
+        srgb_eval[12][0] = srgb_eval[10][0];srgb_eval[12][1] = srgb_eval[10][1];srgb_eval[12][2] = srgb_eval[10][2];
+        srgb_eval[5][0] = srgb_eval[6][0];  srgb_eval[5][1] = srgb_eval[6][1];  srgb_eval[5][2] = srgb_eval[6][2];
+        srgb_eval[1][0] = srgb_eval[15][0]; srgb_eval[1][1] = srgb_eval[15][1]; srgb_eval[1][2] = srgb_eval[15][2];
+        srgb_eval[9][0] = srgb_eval[10][0]; srgb_eval[9][1] = srgb_eval[10][1]; srgb_eval[9][2] = srgb_eval[10][2];
     }
     for (unsigned i = 0; i < 16; i++) {
         dark_color_filter(srgb_eval[i]);
