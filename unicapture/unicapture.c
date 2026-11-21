@@ -207,11 +207,7 @@ void* unicapture_run(void* data)
                 INFO("Video capture started");
                 this->video_capture_running = true;
             } else if ((start_rc == -17 || this->drm_app_foreground) && fallback_video_capture != NULL && !this->fallback_video_running) {
-                INFO("DRM detected at video capture start (rc=-17), releasing driver for Histogram fallback...");
-                if (video_capture->cleanup && video_capture->state != NULL) {
-                    video_capture->cleanup(video_capture->state);
-                    video_capture->state = NULL;
-                }
+                INFO("DRM detected at video capture start (rc=%d, fg=%d), starting Histogram fallback...", start_rc, this->drm_app_foreground);
                 usleep(150000);
                 drm_fallback_active = true;
                 last_primary_probe = now;
@@ -243,18 +239,13 @@ void* unicapture_run(void* data)
             if ((ret = video_capture->acquire_frame(video_capture->state, &video_frame)) != 0) {
                 DBG("video_capture acquire_frame failed: %d", ret);
                 video_frame.pixel_format = PIXFMT_INVALID;
-                if (++video_acquire_failures >= 5 && fallback_video_capture != NULL) {
+                if (++video_acquire_failures >= 2 && fallback_video_capture != NULL) {
                     INFO("DRM interruption detected (ret=%d), releasing primary driver for Histogram fallback...", ret);
                     pthread_mutex_lock(&this->vsync_lock);
                     this->video_capture_running = false;
                     pthread_mutex_unlock(&this->vsync_lock);
-                    usleep(50000);
                     video_capture->terminate(video_capture->state);
-                    if (video_capture->cleanup && video_capture->state) {
-                        video_capture->cleanup(video_capture->state);
-                        video_capture->state = NULL;
-                    }
-                    usleep(150000);
+                    usleep(200000);
                     video_acquire_failures = 0;
                     drm_fallback_active = true;
                     last_primary_probe = now;
