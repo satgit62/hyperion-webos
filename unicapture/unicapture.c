@@ -186,6 +186,7 @@ void* unicapture_run(void* data)
             if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
                 INFO("Histogram DRM fallback started");
                 this->app_switched = false;
+                this->drm_fallback_start_us = now;
                 this->fallback_video_running = true;
                 last_primary_probe = now;
                 home_probe_hits = 0;

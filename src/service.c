@@ -491,6 +491,16 @@ static bool videooutput_callback(LSHandle* sh __attribute__((unused)), LSMessage
     raw_buffer hdr_type_buf = jstring_get(hdr_type_ref);
     const char* hdr_type_str = hdr_type_buf.m_str;
     INFO("videooutput_callback: hdrType: %s", hdr_type_str);
+    if (service->unicapture.fallback_video_running && service->unicapture.drm_fallback_start_us > 0) {
+        struct timespec ts_vo;
+        clock_gettime(CLOCK_MONOTONIC, &ts_vo);
+        uint64_t now_vo = (uint64_t)ts_vo.tv_sec * 1000000ULL + (uint64_t)(ts_vo.tv_nsec / 1000ULL);
+        if (now_vo > service->unicapture.drm_fallback_start_us + 4000000ULL) {
+            INFO("videooutput_callback: video source changed during DRM fallback, signaling return to UI/video capture");
+            service->unicapture.drm_app_foreground = false;
+            service->unicapture.app_switched = true;
+        }
+    }
 
     DynamicRange range = get_dynamic_range(hdr_type_str);
     int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, range);
