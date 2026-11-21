@@ -468,6 +468,35 @@ int capture_cleanup(void* state)
     return 0;
 }
 
+static void eval_histogram_srgb(histogram_backend_state_t* self, const Histogram hist[16], unsigned char srgb_eval[16][3])
+{
+    unsigned black_percent[16];
+    for (int i = 0; i < 16; i++) {
+        black_percent[i] = 100;
+        for (int c = 0; c < 3; c++) {
+            uint64_t total = 0, black = 0;
+            double lin_sum = 0.0;
+            for (int b = 0; b < 256; b++) {
+                uint16_t cnt = hist[i].bins[c][b];
+                if (cnt == 0) continue;
+                total += cnt;
+                if (b <= 12) black += cnt;
+                lin_sum += (double)cnt * self->srgb_to_lin[b];
+            }
+            unsigned fraction = total ? (unsigned)(100 * black / total) : 0;
+            if (fraction < black_percent[i]) black_percent[i] = fraction;
+            float mean_lin = total ? (float)(lin_sum / (double)total) : 0.0f;
+            srgb_eval[i][c] = encode_linear(self, mean_lin);
+        }
+    }
+    uint64_t now = now_ms();
+    int candidate = letterbox_candidate(black_percent, srgb_eval);
+    if (candidate < 0) self->pending_letterbox = -1;
+    else if (candidate != self->pending_letterbox) { self->pending_letterbox = candidate; self->candidate_since = now; }
+    else if ((unsigned)candidate != self->letterbox_mode && now - self->candidate_since >= 2000) self->letterbox_mode = (unsigned)candidate;
+    for (unsigned i = 0; i < 16; i++) dark_color_filter(srgb_eval[i]);
+}
+
 static void worker_loop(histogram_backend_state_t* self, int fd) {
     int gp = -1; pid_t gpid = -1;
     enter_developer_mode(&gp, &gpid);
@@ -480,6 +509,7 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
     leave_developer_mode(&gp, &gpid);
     uint32_t d = 1000000 / (self->fps > 0 ? self->fps : 30);
     Histogram hist[16];
+    unsigned char srgb_eval[16][3];
     unsigned empty_ticks = 0;
     bool ever_populated = false;
     while (!g_policy_revoked) {
@@ -489,7 +519,8 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
             if (!ever_populated) INFO("histogram_backend: first active video histogram frame captured!");
             ever_populated = true;
             empty_ticks = 0;
-            if (write(fd, hist, sizeof(hist)) != (ssize_t)sizeof(hist)) break;
+            eval_histogram_srgb(self, hist, srgb_eval);
+            if (write(fd, srgb_eval, sizeof(srgb_eval)) != (ssize_t)sizeof(srgb_eval)) break;
         } else {
             empty_ticks++;
             if ((ever_populated && empty_ticks >= 120) || (!ever_populated && empty_ticks >= 600)) {
@@ -500,6 +531,7 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
     }
     self->vt_finish(handle); close(fd); _exit(0);
 }
+
 int capture_start(void* state) {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
     if (self->worker_pid > 0) return 0;
@@ -516,6 +548,7 @@ int capture_start(void* state) {
     INFO("histogram_backend: started (isolated worker pid=%d)", (int)pid);
     return 0;
 }
+
 int capture_terminate(void* state) {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
     if (self->worker_fd >= 0) { close(self->worker_fd); self->worker_fd = -1; }
@@ -523,96 +556,37 @@ int capture_terminate(void* state) {
     INFO("histogram_backend: terminated");
     return 0;
 }
+
 int capture_wait(void* state) { histogram_backend_state_t* self = (histogram_backend_state_t*)state; usleep(1000000 / self->fps); return 0; }
+
 int capture_acquire_frame(void* state, frame_info_t* frame) {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
     if (self->worker_pid <= 0 || self->worker_fd < 0) return -1;
-    uint64_t now = now_ms(); (void)now;
-    static Histogram last_hist[16];
+    static unsigned char last_srgb[16][3];
     static bool has_last = false;
     static unsigned stale_reads = 0;
-    Histogram hist[16];
+    unsigned char srgb_eval[16][3];
+    float lin_rgb[16][3];
     bool got_new = false;
     while (1) {
-        Histogram tmp[16];
+        unsigned char tmp[16][3];
         ssize_t n = read(self->worker_fd, tmp, sizeof(tmp));
-        if (n == (ssize_t)sizeof(tmp)) {
-            memcpy(last_hist, tmp, sizeof(tmp));
-            has_last = true;
-            got_new = true;
-            stale_reads = 0;
-        } else if (n == 0) {
-            has_last = false;
-            stale_reads = 0;
-            return -1;
-        } else {
-            break;
-        }
+        if (n == (ssize_t)sizeof(tmp)) { memcpy(last_srgb, tmp, sizeof(tmp)); has_last = true; got_new = true; stale_reads = 0; }
+        else if (n == 0) { has_last = false; stale_reads = 0; return -1; }
+        else break;
     }
     if (!got_new) {
         if (!has_last) return -2;
-        if (++stale_reads > 30) {
-            has_last = false;
-            stale_reads = 0;
-            return -1;
-        }
+        if (++stale_reads > 30) { has_last = false; stale_reads = 0; return -1; }
     }
-    memcpy(hist, last_hist, sizeof(hist));
-    unsigned black_percent[16];
-    unsigned char srgb_eval[16][3];
-    float lin_rgb[16][3];
-    for (int i = 0; i < 16; i++) {
-        black_percent[i] = 100;
-        for (int c = 0; c < 3; c++) {
-            uint64_t total = 0, black = 0;
-            double lin_sum = 0.0;
-            for (int b = 0; b < 256; b++) {
-                uint16_t cnt = hist[i].bins[c][b];
-                if (cnt == 0) continue;
-                total += cnt;
-                if (b <= 12) black += cnt;
-                lin_sum += (double)cnt * self->srgb_to_lin[b];
-            }
-            unsigned fraction = total ? (unsigned)(100 * black / total) : 0;
-            if (fraction < black_percent[i]) black_percent[i] = fraction;
-            float mean_lin = total ? (float)(lin_sum / (double)total) : 0.0f;
-            lin_rgb[i][c] = mean_lin;
-            srgb_eval[i][c] = encode_linear(self, mean_lin);
-        }
-    }
-    int candidate = letterbox_candidate(black_percent, srgb_eval);
-    if (candidate < 0) self->pending_letterbox = -1;
-    else if (candidate != self->pending_letterbox) { self->pending_letterbox = candidate; self->candidate_since = now; }
-    else if ((unsigned)candidate != self->letterbox_mode && now - self->candidate_since >= 2000) self->letterbox_mode = (unsigned)candidate;
-
-    if (self->letterbox_mode) {
-        /* 21:9 Letterbox-Balken oben/unten ausblenden, ohne vt_preset(NULL) aufzurufen */
-        srgb_eval[3][0] = srgb_eval[6][0];  srgb_eval[3][1] = srgb_eval[6][1];  srgb_eval[3][2] = srgb_eval[6][2];
-        srgb_eval[11][0] = srgb_eval[2][0]; srgb_eval[11][1] = srgb_eval[2][1]; srgb_eval[11][2] = srgb_eval[2][2];
-        srgb_eval[12][0] = srgb_eval[10][0];srgb_eval[12][1] = srgb_eval[10][1];srgb_eval[12][2] = srgb_eval[10][2];
-        srgb_eval[5][0] = srgb_eval[6][0];  srgb_eval[5][1] = srgb_eval[6][1];  srgb_eval[5][2] = srgb_eval[6][2];
-        srgb_eval[1][0] = srgb_eval[15][0]; srgb_eval[1][1] = srgb_eval[15][1]; srgb_eval[1][2] = srgb_eval[15][2];
-        srgb_eval[9][0] = srgb_eval[10][0]; srgb_eval[9][1] = srgb_eval[10][1]; srgb_eval[9][2] = srgb_eval[10][2];
-    }
-    for (unsigned i = 0; i < 16; i++) {
-        dark_color_filter(srgb_eval[i]);
+    memcpy(srgb_eval, last_srgb, sizeof(srgb_eval));
+    for (unsigned i = 0; i < 16; i++)
         for (unsigned c = 0; c < 3; c++) lin_rgb[i][c] = self->srgb_to_lin[srgb_eval[i][c]];
-    }
     if (self->average_mode) {
         float avg_r = 0.0f, avg_g = 0.0f, avg_b = 0.0f;
-        for (unsigned i = 0; i < 16; i++) {
-            avg_r += lin_rgb[i][0];
-            avg_g += lin_rgb[i][1];
-            avg_b += lin_rgb[i][2];
-        }
-        uint8_t r = encode_linear(self, avg_r / 16.0f);
-        uint8_t g = encode_linear(self, avg_g / 16.0f);
-        uint8_t b = encode_linear(self, avg_b / 16.0f);
-        for (unsigned i = 0; i < SPATIAL_PIXELS; i++) {
-            self->rgb_buffer[i * 3 + 0] = r;
-            self->rgb_buffer[i * 3 + 1] = g;
-            self->rgb_buffer[i * 3 + 2] = b;
-        }
+        for (unsigned i = 0; i < 16; i++) { avg_r += lin_rgb[i][0]; avg_g += lin_rgb[i][1]; avg_b += lin_rgb[i][2]; }
+        uint8_t r = encode_linear(self, avg_r / 16.0f), g = encode_linear(self, avg_g / 16.0f), b = encode_linear(self, avg_b / 16.0f);
+        for (unsigned i = 0; i < SPATIAL_PIXELS; i++) { self->rgb_buffer[i * 3 + 0] = r; self->rgb_buffer[i * 3 + 1] = g; self->rgb_buffer[i * 3 + 2] = b; }
     } else {
         for (unsigned i = 0; i < SPATIAL_PIXELS; i++) {
             const PixelMix* m = &self->mixes[i];
@@ -620,20 +594,15 @@ int capture_acquire_frame(void* state, frame_info_t* frame) {
             for (unsigned k = 0; k < m->count; k++) {
                 float w = m->weights[k] / 65535.0f;
                 unsigned reg = m->regions[k];
-                acc_r += lin_rgb[reg][0] * w;
-                acc_g += lin_rgb[reg][1] * w;
-                acc_b += lin_rgb[reg][2] * w;
+                acc_r += lin_rgb[reg][0] * w; acc_g += lin_rgb[reg][1] * w; acc_b += lin_rgb[reg][2] * w;
             }
             self->rgb_buffer[i * 3 + 0] = encode_linear(self, acc_r);
             self->rgb_buffer[i * 3 + 1] = encode_linear(self, acc_g);
             self->rgb_buffer[i * 3 + 2] = encode_linear(self, acc_b);
         }
     }
-    frame->pixel_format = PIXFMT_RGB;
-    frame->width = SPATIAL_WIDTH;
-    frame->height = SPATIAL_HEIGHT;
-    frame->planes[0].buffer = self->rgb_buffer;
-    frame->planes[0].stride = SPATIAL_WIDTH * 3;
+    frame->pixel_format = PIXFMT_RGB; frame->width = SPATIAL_WIDTH; frame->height = SPATIAL_HEIGHT;
+    frame->planes[0].buffer = self->rgb_buffer; frame->planes[0].stride = SPATIAL_WIDTH * 3;
     return 0;
 }
 

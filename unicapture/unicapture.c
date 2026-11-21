@@ -113,7 +113,10 @@ void* unicapture_vsync_handler(void* data)
                 this->fallback_video_running = false;
             }
         } else if (this->vsync && this->video_capture_running && this->video_capture->state != NULL && this->video_capture->wait) {
-            if ((this->video_capture->wait(this->video_capture->state)) == -99) { // stop video capture (will be started again in unicapture_run())
+            this->vsync_in_video_wait = true;
+            int vw_rc = this->video_capture->wait(this->video_capture->state);
+            this->vsync_in_video_wait = false;
+            if (vw_rc == -99) { // stop video capture (will be started again in unicapture_run())
                 INFO("Stopping video capture.");
                 this->video_capture->terminate(this->video_capture->state);
                 this->video_capture_running = false;
@@ -244,6 +247,7 @@ void* unicapture_run(void* data)
                     pthread_mutex_lock(&this->vsync_lock);
                     this->video_capture_running = false;
                     pthread_mutex_unlock(&this->vsync_lock);
+                    for (int w = 0; w < 50 && this->vsync_in_video_wait; w++) usleep(10000);
                     video_capture->terminate(video_capture->state);
                     usleep(200000);
                     video_acquire_failures = 0;

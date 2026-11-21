@@ -86,6 +86,7 @@ typedef struct _unicapture_state {
     volatile bool app_switched;
     volatile bool drm_app_foreground;
     volatile uint64_t drm_fallback_start_us;
+    volatile bool vsync_in_video_wait;
 
     bool vsync;
     uint32_t fps;
