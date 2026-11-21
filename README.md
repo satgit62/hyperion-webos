@@ -32,6 +32,19 @@ This means, UI or video capture can be turned on/off individually.
 | `libdile_vt`   | Low-level library used internally by libvt | 3.x+  |
 | `libvtcapture` | High-level video capture library           | 5.x+  |
 
+| `libhistogram` | Hardware scaler histogram backend for DRM-protected content (standalone or automatic fallback) | 6.x–10.x+ |
+
+### DRM Histogram Fallback (`libhistogram`)
+
+On newer LG TVs (webOS 6–10+ / webOS 23–25+, e.g., OLED C2 on webOS 25, C3, B4, C4, G4, and QNED models), protected streaming apps block standard `libvtcapture` frame buffers.
+
+When enabled (`"drmFallback": true` in `config.json`), `unicapture` automatically detects DRM playback (`EACCES` / foreground streaming apps), releases `libvtcapture`, and launches `libhistogram` in an isolated worker process. Once playback ends or the foreground app switches back to Home or an unprotected video source, `unicapture` terminates the histogram worker and restores normal UI (`libhalgal`) and video (`libvtcapture`) capture.
+
+Additional `config.json` options:
+- `"drmFallback"`: `true` / `false` (enable automatic fallback from `libvtcapture` to `libhistogram`)
+- `"histogramProfile"`: `"default"` | `"c2"` | `"b-series"` | `"average"`
+- `"histogramGeometry"`: `"rectangles"` | `"rim"`
+
 ### UI capturing
 
 | Backend        | Description                                | webOS |
@@ -89,7 +102,7 @@ git clone --recursive https://github.com/webosbrew/hyperion-webos.git
 mkdir hyperion-webos/build
 cd hyperion-webos/build
 cmake .. -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_FILE}"
-make hyperion-webos gm_backend halgal_backend dile_vt_backend vtcapture_backend
+make hyperion-webos gm_backend halgal_backend dile_vt_backend vtcapture_backend histogram_backend
 ```
 
 ## Running
