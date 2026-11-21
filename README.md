@@ -31,7 +31,6 @@ This means, UI or video capture can be turned on/off individually.
 |----------------|--------------------------------------------|-------|
 | `libdile_vt`   | Low-level library used internally by libvt | 3.x+  |
 | `libvtcapture` | High-level video capture library           | 5.x+  |
-
 | `libhistogram` | Hardware scaler histogram backend          | 10.x+ |
 
 ### DRM Histogram Fallback (`libhistogram`)
