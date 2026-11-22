@@ -135,6 +135,13 @@ void service_init_backends(service_t* service)
         }
     }
 
+    if (settings->histogram_profile != NULL && strlen(settings->histogram_profile) > 0) {
+        setenv("HYPERION_HISTOGRAM_PROFILE", settings->histogram_profile, 1);
+    }
+    if (settings->histogram_geometry != NULL && strlen(settings->histogram_geometry) > 0) {
+        setenv("HYPERION_HISTOGRAM_GEOMETRY", settings->histogram_geometry, 1);
+    }
+
     if (!service->video_backend_initialized) {
         service->unicapture.video_capture = NULL;
 
@@ -153,13 +160,6 @@ void service_init_backends(service_t* service)
                     service->unicapture.video_capture = &service->video_backend;
                     service->video_backend_initialized = true;
                 }
-            }
-
-            if (settings->histogram_profile != NULL && strlen(settings->histogram_profile) > 0) {
-                setenv("HYPERION_HISTOGRAM_PROFILE", settings->histogram_profile, 1);
-            }
-            if (settings->histogram_geometry != NULL && strlen(settings->histogram_geometry) > 0) {
-                setenv("HYPERION_HISTOGRAM_GEOMETRY", settings->histogram_geometry, 1);
             }
 
             if (settings->drm_fallback) {

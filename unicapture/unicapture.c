@@ -232,7 +232,8 @@ void* unicapture_run(void* data)
         frame_info_t video_frame_converted = { PIXFMT_INVALID };
 
         // Capture frames
-        if (this->ui_capture_running && !this->fallback_video_running) {
+        bool histogram_primary = (this->video_capture_running && video_capture && video_capture->name && strcmp(video_capture->name, "libhistogram_backend.so") == 0);
+        if (this->ui_capture_running && !this->fallback_video_running && !histogram_primary) {
             if ((ret = ui_capture->acquire_frame(ui_capture->state, &ui_frame)) != 0) {
                 ui_frame.pixel_format = PIXFMT_INVALID;
             }
@@ -356,7 +357,7 @@ void* unicapture_run(void* data)
         }
 
         uint64_t frame_acquired = getticks_us();
-        pixel_format_t target_format = this->target_format;
+        pixel_format_t target_format = (video_frame.pixel_format == PIXFMT_RGB) ? PIXFMT_RGB : this->target_format;
         pixel_format_t blend_format = (target_format == PIXFMT_RGB || target_format == PIXFMT_ARGB) ? PIXFMT_ARGB : PIXFMT_YUV420_SEMI_PLANAR;
 
         // Convert frame to suitable video formats
