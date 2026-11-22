@@ -516,10 +516,28 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
         usleep(d); memset(hist, 0, sizeof(hist));
         int rc = self->vt_get(handle, hist);
         if (rc == 0 && histogram_populated(hist)) {
-            if (!ever_populated) INFO("histogram_backend: first active video histogram frame captured!");
+            bool first_frame = !ever_populated;
             ever_populated = true;
             empty_ticks = 0;
             eval_histogram_srgb(self, hist, srgb_eval);
+            if (first_frame) {
+                int max_bin = -1;
+                uint64_t sum0 = 0;
+                for (int r = 0; r < 16; r++) {
+                    for (int c = 0; c < 3; c++) {
+                        for (int b = 0; b < 256; b++) {
+                            if (hist[r].bins[c][b] != 0) {
+                                if (b > max_bin) max_bin = b;
+                                if (r == 0) sum0 += hist[r].bins[c][b];
+                            }
+                        }
+                    }
+                }
+                INFO("histogram_backend: first active video histogram frame captured! (id0=%u max_bin=%d sum0=%llu r0=[%u,%u,%u] r14=[%u,%u,%u])",
+                     hist[0].id, max_bin, (unsigned long long)sum0,
+                     srgb_eval[0][0], srgb_eval[0][1], srgb_eval[0][2],
+                     srgb_eval[14][0], srgb_eval[14][1], srgb_eval[14][2]);
+            }
             if (write(fd, srgb_eval, sizeof(srgb_eval)) != (ssize_t)sizeof(srgb_eval)) break;
         } else {
             empty_ticks++;
