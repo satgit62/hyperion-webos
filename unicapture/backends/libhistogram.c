@@ -106,6 +106,10 @@ typedef struct {
     float srgb_to_lin[256];
     uint8_t lin_to_srgb[4096];
 
+    bool has_last;
+    unsigned stale_reads;
+    unsigned char last_srgb[16][3];
+
     uint8_t* rgb_buffer;
     PixelMix mixes[SPATIAL_PIXELS];
 } histogram_backend_state_t;
@@ -562,6 +566,7 @@ int capture_start(void* state) {
     usleep(250000);
     int st = 0;
     if (waitpid(pid, &st, WNOHANG) == pid) { close(fds[0]); ERR("histogram_backend: worker exited immediately"); return -1; }
+    self->has_last = false; self->stale_reads = 0;
     self->worker_pid = pid; self->worker_fd = fds[0];
     INFO("histogram_backend: started (isolated worker pid=%d)", (int)pid);
     return 0;
@@ -580,24 +585,21 @@ int capture_wait(void* state) { histogram_backend_state_t* self = (histogram_bac
 int capture_acquire_frame(void* state, frame_info_t* frame) {
     histogram_backend_state_t* self = (histogram_backend_state_t*)state;
     if (self->worker_pid <= 0 || self->worker_fd < 0) return -1;
-    static unsigned char last_srgb[16][3];
-    static bool has_last = false;
-    static unsigned stale_reads = 0;
     unsigned char srgb_eval[16][3];
     float lin_rgb[16][3];
     bool got_new = false;
     while (1) {
         unsigned char tmp[16][3];
         ssize_t n = read(self->worker_fd, tmp, sizeof(tmp));
-        if (n == (ssize_t)sizeof(tmp)) { memcpy(last_srgb, tmp, sizeof(tmp)); has_last = true; got_new = true; stale_reads = 0; }
-        else if (n == 0) { has_last = false; stale_reads = 0; return -1; }
+        if (n == (ssize_t)sizeof(tmp)) { memcpy(self->last_srgb, tmp, sizeof(tmp)); self->has_last = true; got_new = true; self->stale_reads = 0; }
+        else if (n == 0) { self->has_last = false; self->stale_reads = 0; return -1; }
         else break;
     }
     if (!got_new) {
-        if (!has_last) return -2;
-        if (++stale_reads > 30) { has_last = false; stale_reads = 0; return -1; }
+        if (!self->has_last) return -2;
+        if (++self->stale_reads > 30) { self->has_last = false; self->stale_reads = 0; return -1; }
     }
-    memcpy(srgb_eval, last_srgb, sizeof(srgb_eval));
+    memcpy(srgb_eval, self->last_srgb, sizeof(srgb_eval));
     for (unsigned i = 0; i < 16; i++)
         for (unsigned c = 0; c < 3; c++) lin_rgb[i][c] = self->srgb_to_lin[srgb_eval[i][c]];
     if (self->average_mode) {
