@@ -459,7 +459,7 @@ void* unicapture_run(void* data)
                     converter_run(&final_converter, &blended_frame, &final_frame, target_format);
                 }
             }
-        } else if (ui_frame_converted.pixel_format != PIXFMT_INVALID) {
+        } else if (video_frame.pixel_format != PIXFMT_RGB && ui_frame_converted.pixel_format != PIXFMT_INVALID) {
             if (ui_frame_converted.pixel_format == target_format) {
                 borrow_frame(&final_frame, &ui_frame_converted);
             } else {
