@@ -357,7 +357,7 @@ void* unicapture_run(void* data)
         }
 
         uint64_t frame_acquired = getticks_us();
-        pixel_format_t target_format = (video_frame.pixel_format == PIXFMT_RGB) ? PIXFMT_RGB : this->target_format;
+        pixel_format_t target_format = (video_frame.pixel_format == PIXFMT_RGB) ? PIXFMT_ARGB : this->target_format;
         pixel_format_t blend_format = (target_format == PIXFMT_RGB || target_format == PIXFMT_ARGB) ? PIXFMT_ARGB : PIXFMT_YUV420_SEMI_PLANAR;
 
         // Convert frame to suitable video formats
