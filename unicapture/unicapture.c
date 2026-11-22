@@ -382,7 +382,7 @@ void* unicapture_run(void* data)
         bool got_frame = true;
 
         // Blend frames and prepare for sending
-        if (video_frame_converted.pixel_format != PIXFMT_INVALID && ui_frame_converted.pixel_format != PIXFMT_INVALID) {
+        if (video_frame.pixel_format != PIXFMT_RGB && video_frame_converted.pixel_format != PIXFMT_INVALID && ui_frame_converted.pixel_format != PIXFMT_INVALID) {
             const int width = video_frame_converted.width;
             const int height = video_frame_converted.height;
 
