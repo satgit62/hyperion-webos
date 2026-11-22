@@ -495,15 +495,15 @@ void* unicapture_run(void* data)
         }
 
         if (this->callback != NULL && (target_format == PIXFMT_RGB || target_format == PIXFMT_ARGB)) {
-            static bool logged_hist_send = false;
-            if (video_frame.pixel_format == PIXFMT_RGB && final_frame.planes[0].buffer != NULL && !logged_hist_send) {
+            static uint64_t last_hist_log = 0;
+            if (video_frame.pixel_format == PIXFMT_RGB && final_frame.planes[0].buffer != NULL && (now - last_hist_log) >= 5000000ULL) {
                 const uint8_t* p = final_frame.planes[0].buffer;
                 size_t mid = ((size_t)(final_frame.height / 2) * (size_t)final_frame.width + (size_t)(final_frame.width / 2)) * 3;
                 INFO("unicapture: sending DRM histogram frame to receiver (%dx%d, fmt=%d, px0=[%u,%u,%u], center=[%u,%u,%u])",
                      final_frame.width, final_frame.height, final_frame.pixel_format,
                      (unsigned)p[0], (unsigned)p[1], (unsigned)p[2],
                      (unsigned)p[mid], (unsigned)p[mid + 1], (unsigned)p[mid + 2]);
-                logged_hist_send = true;
+                last_hist_log = now;
             }
             this->callback(this->callback_data, final_frame.width, final_frame.height, final_frame.planes[0].buffer);
         }
