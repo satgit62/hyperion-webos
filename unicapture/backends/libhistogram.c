@@ -347,10 +347,10 @@ static void dark_color_filter(unsigned char color[3])
     for (unsigned c = 1; c < 3; c++) {
         if (color[c] > peak) peak = color[c];
     }
-    if (peak >= 18) return;
-    unsigned gain = peak > 6 ? peak - 6 : 0;
+    if (peak >= 10) return;
+    unsigned gain = peak > 3 ? peak - 3 : 0;
     for (unsigned c = 0; c < 3; c++) {
-        color[c] = (unsigned char)((color[c] * gain + 8) / 16);
+        color[c] = (unsigned char)((color[c] * gain + 3) / 7);
     }
 }
 
@@ -475,6 +475,9 @@ int capture_cleanup(void* state)
 static void eval_histogram_srgb(histogram_backend_state_t* self, const Histogram hist[16], unsigned char srgb_eval[16][3])
 {
     unsigned black_percent[16];
+    float mean_lin[16][3];
+    float frame_max_lin = 0.0f;
+
     for (int i = 0; i < 16; i++) {
         black_percent[i] = 100;
         for (int c = 0; c < 3; c++) {
@@ -489,8 +492,25 @@ static void eval_histogram_srgb(histogram_backend_state_t* self, const Histogram
             }
             unsigned fraction = total ? (unsigned)(100 * black / total) : 0;
             if (fraction < black_percent[i]) black_percent[i] = fraction;
-            float mean_lin = total ? (float)(lin_sum / (double)total) : 0.0f;
-            srgb_eval[i][c] = encode_linear(self, mean_lin);
+            float m = total ? (float)(lin_sum / (double)total) : 0.0f;
+            mean_lin[i][c] = m;
+            if (m > frame_max_lin) frame_max_lin = m;
+        }
+    }
+
+    float hdr_gain = 1.0f;
+    if (frame_max_lin > 0.0004f && frame_max_lin < 0.38f) {
+        hdr_gain = 0.38f / frame_max_lin;
+        if (hdr_gain > 4.5f) hdr_gain = 4.5f;
+    }
+
+    for (int i = 0; i < 16; i++) {
+        for (int c = 0; c < 3; c++) {
+            float boosted = mean_lin[i][c] * hdr_gain;
+            if (boosted > 0.0f && boosted < 1.0f) {
+                boosted = powf(boosted, 0.82f);
+            }
+            srgb_eval[i][c] = encode_linear(self, boosted);
         }
     }
     uint64_t now = now_ms();
