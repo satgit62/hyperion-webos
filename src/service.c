@@ -70,11 +70,13 @@ int service_feed_frame(void* data __attribute__((unused)), int width, int height
 static void service_on_drm_fallback(void* data, bool active)
 {
     service_t* service = (service_t*)data;
-    if (service == NULL || service->settings == NULL || service->settings->no_hdr) return;
+    if (service == NULL || service->settings == NULL || service->settings->no_hdr)
+        return;
     char* host = service->settings->unix_socket ? "127.0.0.1" : service->settings->address;
     DynamicRange target = active ? (DynamicRange)0 : service->last_tv_range;
     INFO("DRM histogram fallback %s: setting HyperHDR tone mapping state to %d", active ? "active" : "ended", (int)target);
-    if (set_hdr_state(host, RPC_PORT, target) != 0) ERR("service_on_drm_fallback: set_hdr_state failed");
+    if (set_hdr_state(host, RPC_PORT, target) != 0)
+        ERR("service_on_drm_fallback: set_hdr_state failed");
 }
 
 int service_feed_nv12_frame(void* data __attribute__((unused)), int width, int height, uint8_t* y, uint8_t* uv, int stride_y, int stride_uv)
