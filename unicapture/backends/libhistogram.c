@@ -398,8 +398,29 @@ static int letterbox_candidate(const unsigned black[16], unsigned char color[16]
     return -1;
 }
 
+static int get_webos_major_version(void)
+{
+    FILE* f = fopen("/var/run/nyx/os_info.json", "r");
+    if (!f) return 0;
+    char buf[1024];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    const char* p = strstr(buf, "\"webos_release\"");
+    if (!p) return 0;
+    p = strchr(p + 15, ':');
+    if (!p) return 0;
+    while (*p && (*p < '0' || *p > '9')) p++;
+    return atoi(p);
+}
+
 int capture_init(cap_backend_config_t* config, void** state_p)
 {
+    int webos_major = get_webos_major_version();
+    if (webos_major > 0 && webos_major < 5) {
+        WARN("histogram_backend: unsupported on webOS %d (< 5), disabling histogram backend", webos_major);
+        return -1;
+    }
     histogram_backend_state_t* self = calloc(1, sizeof(histogram_backend_state_t));
     if (!self) return -1;
 
