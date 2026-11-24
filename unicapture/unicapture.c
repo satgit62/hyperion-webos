@@ -191,6 +191,7 @@ void* unicapture_run(void* data)
                 this->app_switched = false;
                 this->drm_fallback_start_us = now;
                 this->fallback_video_running = true;
+                if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, true);
                 last_primary_probe = now;
                 home_probe_hits = 0;
             } else {
@@ -269,6 +270,7 @@ void* unicapture_run(void* data)
                 if (this->fallback_video_running) {
                     fallback_video_capture->terminate(fallback_video_capture->state);
                     this->fallback_video_running = false;
+                    if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, false);
                 }
                 drm_fallback_active = false;
                 video_acquire_failures = 0;
@@ -282,6 +284,7 @@ void* unicapture_run(void* data)
                     fallback_video_capture->terminate(fallback_video_capture->state);
                     this->fallback_video_running = false;
                     drm_fallback_active = false;
+                    if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, false);
                 }
             }
             if (false && (now - last_primary_probe) > 3000000 && video_capture != NULL) {

@@ -77,6 +77,7 @@ typedef struct _capture_backend {
  */
 typedef int (*unicapture_imagedata_callback_t)(void* data, int width, int height, uint8_t* rgb_data);
 typedef int (*unicapture_imagedata_nv12_callback_t)(void* data, int width, int height, uint8_t* y, uint8_t* uv, int stride_y, int stride_uv);
+typedef void (*unicapture_fallback_callback_t)(void* data, bool active);
 
 typedef struct _unicapture_state {
     capture_backend_t* ui_capture;
@@ -106,6 +107,7 @@ typedef struct _unicapture_state {
 
     unicapture_imagedata_callback_t callback;
     unicapture_imagedata_nv12_callback_t callback_nv12;
+    unicapture_fallback_callback_t fallback_callback;
     void* callback_data;
 
     bool dump_frames;

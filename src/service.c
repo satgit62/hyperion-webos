@@ -67,6 +67,16 @@ int service_feed_frame(void* data __attribute__((unused)), int width, int height
     return 0;
 }
 
+static void service_on_drm_fallback(void* data, bool active)
+{
+    service_t* service = (service_t*)data;
+    if (service == NULL || service->settings == NULL || service->settings->no_hdr) return;
+    char* host = service->settings->unix_socket ? "127.0.0.1" : service->settings->address;
+    DynamicRange target = active ? (DynamicRange)0 : service->last_tv_range;
+    INFO("DRM histogram fallback %s: setting HyperHDR tone mapping state to %d", active ? "active" : "ended", (int)target);
+    if (set_hdr_state(host, RPC_PORT, target) != 0) ERR("service_on_drm_fallback: set_hdr_state failed");
+}
+
 int service_feed_nv12_frame(void* data __attribute__((unused)), int width, int height, uint8_t* y, uint8_t* uv, int stride_y, int stride_uv)
 {
     int ret;
@@ -87,6 +97,8 @@ int service_init(service_t* service, settings_t* settings)
     service->unicapture.target_format = settings->send_nv12 ? PIXFMT_YUV420_SEMI_PLANAR : PIXFMT_RGB;
     service->unicapture.callback = &service_feed_frame;
     service->unicapture.callback_nv12 = &service_feed_nv12_frame;
+    service->unicapture.fallback_callback = &service_on_drm_fallback;
+    service->last_tv_range = (DynamicRange)0;
     service->unicapture.callback_data = (void*)service;
     service->unicapture.dump_frames = settings->dump_frames;
 
@@ -503,7 +515,9 @@ static bool videooutput_callback(LSHandle* sh __attribute__((unused)), LSMessage
     }
 
     DynamicRange range = get_dynamic_range(hdr_type_str);
-    int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, range);
+    service->last_tv_range = range;
+    DynamicRange effective_range = service->unicapture.fallback_video_running ? (DynamicRange)0 : range;
+    int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, effective_range);
     if (ret != 0) {
         ERR("videooutput_callback: set_hdr_state failed, ret: %d", ret);
     }
@@ -595,7 +609,9 @@ static bool picture_callback(LSHandle* sh __attribute__((unused)), LSMessage* ms
     INFO("picture_callback: dynamicRange: %s", dynamic_range_str);
 
     DynamicRange range = get_dynamic_range(dynamic_range_str);
-    int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, range);
+    service->last_tv_range = range;
+    DynamicRange effective_range = service->unicapture.fallback_video_running ? (DynamicRange)0 : range;
+    int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, effective_range);
     if (ret != 0) {
         ERR("videooutput_callback: set_hdr_state failed, ret: %d", ret);
     }

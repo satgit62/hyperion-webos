@@ -1,5 +1,6 @@
 #pragma once
 
+#include "json_rpc_client.h"
 #include "settings.h"
 #include "unicapture.h"
 #include <glib.h>
@@ -11,6 +12,7 @@ typedef struct {
     bool running;
     bool connected;
     bool power_paused;
+    DynamicRange last_tv_range;
 
     capture_backend_t ui_backend;
     capture_backend_t video_backend;
