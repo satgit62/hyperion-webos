@@ -191,6 +191,9 @@ void* unicapture_run(void* data)
                 this->app_switched = false;
                 this->drm_fallback_start_us = now;
                 this->fallback_video_running = true;
+                if (this->fallback_callback != NULL) {
+                    this->fallback_callback(this->callback_data, true);
+                }
                 if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, true);
                 last_primary_probe = now;
                 home_probe_hits = 0;
@@ -210,7 +213,7 @@ void* unicapture_run(void* data)
             if (start_rc == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
-            } else if ((start_rc == -17 || this->drm_app_foreground) && fallback_video_capture != NULL && !this->fallback_video_running) {
+            } else if (!this->hdmi_app_foreground && (start_rc == -17 || this->drm_app_foreground) && fallback_video_capture != NULL && !this->fallback_video_running) {
                 INFO("DRM detected at video capture start (rc=%d, fg=%d), starting Histogram fallback...", start_rc, this->drm_app_foreground);
                 usleep(150000);
                 drm_fallback_active = true;
@@ -244,13 +247,17 @@ void* unicapture_run(void* data)
             if ((ret = video_capture->acquire_frame(video_capture->state, &video_frame)) != 0) {
                 DBG("video_capture acquire_frame failed: %d", ret);
                 video_frame.pixel_format = PIXFMT_INVALID;
-                if (++video_acquire_failures >= 2 && fallback_video_capture != NULL) {
+                if (!this->hdmi_app_foreground && ++video_acquire_failures >= 2 && fallback_video_capture != NULL) {
                     INFO("DRM interruption detected (ret=%d), releasing primary driver for Histogram fallback...", ret);
                     pthread_mutex_lock(&this->vsync_lock);
                     this->video_capture_running = false;
                     pthread_mutex_unlock(&this->vsync_lock);
                     for (int w = 0; w < 50 && this->vsync_in_video_wait; w++) usleep(10000);
                     video_capture->terminate(video_capture->state);
+                    if (video_capture->cleanup && video_capture->state != NULL) {
+                        video_capture->cleanup(video_capture->state);
+                        video_capture->state = NULL;
+                    }
                     usleep(200000);
                     video_acquire_failures = 0;
                     drm_fallback_active = true;

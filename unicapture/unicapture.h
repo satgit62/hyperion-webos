@@ -78,6 +78,7 @@ typedef struct _capture_backend {
 typedef int (*unicapture_imagedata_callback_t)(void* data, int width, int height, uint8_t* rgb_data);
 typedef int (*unicapture_imagedata_nv12_callback_t)(void* data, int width, int height, uint8_t* y, uint8_t* uv, int stride_y, int stride_uv);
 typedef void (*unicapture_fallback_callback_t)(void* data, bool active);
+typedef void (*unicapture_fallback_callback_t)(void* data, bool active);
 
 typedef struct _unicapture_state {
     capture_backend_t* ui_capture;
@@ -86,6 +87,7 @@ typedef struct _unicapture_state {
     cap_backend_config_t video_config;
     volatile bool app_switched;
     volatile bool drm_app_foreground;
+    bool hdmi_app_foreground;
     volatile uint64_t drm_fallback_start_us;
     volatile bool vsync_in_video_wait;
 

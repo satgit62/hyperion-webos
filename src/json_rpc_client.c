@@ -176,7 +176,7 @@ int get_daemon_flavor(char* host, ushort rpc_port, AmbientLightingDaemon* flavor
     return ret;
 }
 
-int set_hdr_state(char* host, ushort rpc_port, DynamicRange range)
+int set_hdr_state(char* host, ushort rpc_port, DynamicRange range, bool disable_hdr)
 {
     int ret = 0;
 
@@ -199,7 +199,7 @@ int set_hdr_state(char* host, ushort rpc_port, DynamicRange range)
     jvalue_ref post_body = jobject_create();
 
     jobject_set(post_body, j_cstr_to_buffer("command"), jstring_create("videomodehdr"));
-    jobject_set(post_body, j_cstr_to_buffer("HDR"), jnumber_create_i32(1));
+    jobject_set(post_body, j_cstr_to_buffer("HDR"), jnumber_create_i32(disable_hdr ? 0 : 1));
 
     const char* lut_filename = "";
     switch (range) {

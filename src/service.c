@@ -73,9 +73,8 @@ static void service_on_drm_fallback(void* data, bool active)
     if (service == NULL || service->settings == NULL || service->settings->no_hdr)
         return;
     char* host = service->settings->unix_socket ? "127.0.0.1" : service->settings->address;
-    DynamicRange target = active ? (DynamicRange)0 : service->last_tv_range;
-    INFO("DRM histogram fallback %s: setting HyperHDR tone mapping state to %d", active ? "active" : "ended", (int)target);
-    if (set_hdr_state(host, RPC_PORT, target) != 0)
+    INFO("DRM histogram fallback %s: setting HyperHDR tone mapping to %s", active ? "active" : "ended", active ? "OFF (0)" : "ON (1)");
+    if (set_hdr_state(host, RPC_PORT, service->last_tv_range, active) != 0)
         ERR("service_on_drm_fallback: set_hdr_state failed");
 }
 
@@ -518,8 +517,8 @@ static bool videooutput_callback(LSHandle* sh __attribute__((unused)), LSMessage
 
     DynamicRange range = get_dynamic_range(hdr_type_str);
     service->last_tv_range = range;
-    DynamicRange effective_range = service->unicapture.fallback_video_running ? (DynamicRange)0 : range;
-    int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, effective_range);
+    bool disable_hdr = service->unicapture.fallback_video_running;
+    int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, range, disable_hdr);
     if (ret != 0) {
         ERR("videooutput_callback: set_hdr_state failed, ret: %d", ret);
     }
@@ -528,6 +527,20 @@ static bool videooutput_callback(LSHandle* sh __attribute__((unused)), LSMessage
     j_release(&parsed);
 
     return true;
+}
+
+static bool is_hdmi_input_app(const char* app_id, size_t len)
+{
+    if (!app_id || len == 0)
+        return false;
+    char buf[128];
+    size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+    for (size_t i = 0; i < n; i++) {
+        char c = app_id[i];
+        buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+    }
+    buf[n] = 0;
+    return strstr(buf, "com.webos.app.hdmi") != NULL;
 }
 
 static bool is_drm_streaming_app(const char* app_id, size_t len)
@@ -565,6 +578,7 @@ static bool foreground_app_callback(LSHandle* sh __attribute__((unused)), LSMess
                 service->unicapture.app_switched = true;
             }
             service->unicapture.drm_app_foreground = is_drm_streaming_app(app_buf.m_str, app_buf.m_len);
+            service->unicapture.hdmi_app_foreground = is_hdmi_input_app(app_buf.m_str, app_buf.m_len);
             snprintf(last_app, sizeof(last_app), "%.*s", (int)app_buf.m_len, app_buf.m_str);
         }
         jstring_free_buffer(app_buf);
@@ -612,8 +626,8 @@ static bool picture_callback(LSHandle* sh __attribute__((unused)), LSMessage* ms
 
     DynamicRange range = get_dynamic_range(dynamic_range_str);
     service->last_tv_range = range;
-    DynamicRange effective_range = service->unicapture.fallback_video_running ? (DynamicRange)0 : range;
-    int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, effective_range);
+    bool disable_hdr = service->unicapture.fallback_video_running;
+    int ret = set_hdr_state(service->settings->unix_socket ? "127.0.0.1" : service->settings->address, RPC_PORT, range, disable_hdr);
     if (ret != 0) {
         ERR("videooutput_callback: set_hdr_state failed, ret: %d", ret);
     }
