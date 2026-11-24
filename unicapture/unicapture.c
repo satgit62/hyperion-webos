@@ -120,6 +120,12 @@ void* unicapture_vsync_handler(void* data)
                 INFO("Stopping video capture.");
                 this->video_capture->terminate(this->video_capture->state);
                 this->video_capture_running = false;
+                if (++this->vtcapture_stall_count >= 2 && this->fallback_video_capture != NULL) {
+                    WARN("Primary video capture stalled (%u times), enabling Histogram fallback...", this->vtcapture_stall_count);
+                    this->vtcapture_stalled = true;
+                }
+            } else if (vw_rc == 0) {
+                this->vtcapture_stall_count = 0;
             }
         } else {
             usleep(1000000 / (this->fps == 0 ? 30 : this->fps));
@@ -213,8 +219,8 @@ void* unicapture_run(void* data)
             if (start_rc == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
-            } else if (!this->hdmi_app_foreground && (start_rc == -17 || this->drm_app_foreground) && fallback_video_capture != NULL && !this->fallback_video_running) {
-                INFO("DRM detected at video capture start (rc=%d, fg=%d), starting Histogram fallback...", start_rc, this->drm_app_foreground);
+            } else if (((!this->hdmi_app_foreground && !this->home_app_foreground && (start_rc == -17 || this->drm_app_foreground)) || this->vtcapture_stalled) && fallback_video_capture != NULL && !this->fallback_video_running) {
+                INFO("Starting Histogram fallback (rc=%d, drm_fg=%d, hdmi_fg=%d, stalled=%d)...", start_rc, this->drm_app_foreground, this->hdmi_app_foreground, this->vtcapture_stalled);
                 usleep(150000);
                 drm_fallback_active = true;
                 last_primary_probe = now;
@@ -280,6 +286,8 @@ void* unicapture_run(void* data)
                     if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, false);
                 }
                 drm_fallback_active = false;
+                this->vtcapture_stalled = false;
+                this->vtcapture_stall_count = 0;
                 video_acquire_failures = 0;
             }
         }

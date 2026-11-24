@@ -508,7 +508,7 @@ static bool videooutput_callback(LSHandle* sh __attribute__((unused)), LSMessage
         struct timespec ts_vo;
         clock_gettime(CLOCK_MONOTONIC, &ts_vo);
         uint64_t now_vo = (uint64_t)ts_vo.tv_sec * 1000000ULL + (uint64_t)(ts_vo.tv_nsec / 1000ULL);
-        if (now_vo > service->unicapture.drm_fallback_start_us + 4000000ULL) {
+        if (!service->unicapture.drm_app_foreground && !service->unicapture.vtcapture_stalled && now_vo > service->unicapture.drm_fallback_start_us + 4000000ULL) {
             INFO("videooutput_callback: video source changed during DRM fallback, signaling return to UI/video capture");
             service->unicapture.drm_app_foreground = false;
             service->unicapture.app_switched = true;
@@ -579,6 +579,8 @@ static bool foreground_app_callback(LSHandle* sh __attribute__((unused)), LSMess
             }
             service->unicapture.drm_app_foreground = is_drm_streaming_app(app_buf.m_str, app_buf.m_len);
             service->unicapture.hdmi_app_foreground = is_hdmi_input_app(app_buf.m_str, app_buf.m_len);
+            service->unicapture.home_app_foreground = (app_buf.m_len >= 18 && strncmp(app_buf.m_str, "com.webos.app.home", 18) == 0);
+            service->unicapture.home_app_foreground = (app_buf.m_len >= 18 && strncmp(app_buf.m_str, "com.webos.app.home", 18) == 0);
             snprintf(last_app, sizeof(last_app), "%.*s", (int)app_buf.m_len, app_buf.m_str);
         }
         jstring_free_buffer(app_buf);

@@ -51,8 +51,12 @@ int hyperion_read()
         return -1;
     uint8_t headbuff[4];
     int n = read(sockfd, headbuff, 4);
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+        return 0;
+    if (n <= 0)
+        return -1;
     uint32_t messageSize = ((headbuff[0] << 24) & 0xFF000000) | ((headbuff[1] << 16) & 0x00FF0000) | ((headbuff[2] << 8) & 0x0000FF00) | ((headbuff[3]) & 0x000000FF);
-    if (n < 0 || messageSize >= sizeof(recvBuff))
+    if (messageSize >= sizeof(recvBuff))
         return -1;
     n = read(sockfd, recvBuff, messageSize);
     if (n < 0)

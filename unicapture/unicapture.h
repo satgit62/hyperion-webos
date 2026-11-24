@@ -88,6 +88,7 @@ typedef struct _unicapture_state {
     volatile bool app_switched;
     volatile bool drm_app_foreground;
     bool hdmi_app_foreground;
+    bool home_app_foreground;
     volatile uint64_t drm_fallback_start_us;
     volatile bool vsync_in_video_wait;
 
@@ -101,6 +102,8 @@ typedef struct _unicapture_state {
     bool ui_capture_running;
     bool video_capture_running;
     bool fallback_video_running;
+    bool vtcapture_stalled;
+    unsigned vtcapture_stall_count;
 
     bool vsync_thread_running;
     pthread_t vsync_thread;
