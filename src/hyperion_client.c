@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include "hyperion_client.h"
 #include "log.h"
 
@@ -24,6 +25,7 @@ static int _write_message(const void* buffer, size_t size);
 static bool _parse_reply(hyperionnet_Reply_table_t reply);
 
 static int sockfd;
+static pthread_mutex_t _write_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool _registered = false;
 static int _priority = 0;
 static const char* _origin = NULL;
@@ -127,6 +129,11 @@ int hyperion_set_register(const char* origin, int priority)
 
 int _write_message(const void* buffer, size_t size)
 {
+    pthread_mutex_lock(&_write_lock);
+    if (!sockfd) {
+        pthread_mutex_unlock(&_write_lock);
+        return -1;
+    }
     const uint8_t header[] = {
         (uint8_t)((size >> 24) & 0xFF),
         (uint8_t)((size >> 16) & 0xFF),
@@ -137,8 +144,10 @@ int _write_message(const void* buffer, size_t size)
         { (void*)header, sizeof(header) },
         { (void*)buffer, size }
     };
-
-    return writev(sockfd, iov, 2) == (ssize_t)(sizeof(header) + size) ? 0 : -1;
+    ssize_t expected = (ssize_t)(sizeof(header) + size);
+    ssize_t written = writev(sockfd, iov, 2);
+    pthread_mutex_unlock(&_write_lock);
+    return written == expected ? 0 : -1;
 }
 
 int _send_message(const void* buffer, size_t size)

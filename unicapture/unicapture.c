@@ -120,7 +120,8 @@ void* unicapture_vsync_handler(void* data)
                 INFO("Stopping video capture.");
                 this->video_capture->terminate(this->video_capture->state);
                 this->video_capture_running = false;
-                if (++this->vtcapture_stall_count >= 2 && this->fallback_video_capture != NULL) {
+                bool is_vtcapture = (this->video_capture && this->video_capture->name && strstr(this->video_capture->name, "vtcapture") != NULL);
+                if (is_vtcapture && ++this->vtcapture_stall_count >= 2 && this->fallback_video_capture != NULL) {
                     WARN("Primary video capture stalled (%u times), enabling Histogram fallback...", this->vtcapture_stall_count);
                     this->vtcapture_stalled = true;
                 }
