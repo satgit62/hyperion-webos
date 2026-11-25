@@ -176,7 +176,7 @@ void service_init_backends(service_t* service)
             }
 
             if (settings->drm_fallback) {
-                if (!fallback_backend_initialized && (service->video_backend.name == NULL || strcmp(service->video_backend.name, "libhistogram_backend.so") != 0)) {
+                if (!fallback_backend_initialized && service->video_backend.name != NULL && strcmp(service->video_backend.name, "libvtcapture_backend.so") == 0) {
                     if (unicapture_init_backend(&config, &fallback_video_backend, "libhistogram_backend.so") == 0) {
                         INFO("Histogram DRM fallback backend ready (profile: %s).",
                             settings->histogram_profile ? settings->histogram_profile : "default");
