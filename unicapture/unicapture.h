@@ -103,6 +103,7 @@ typedef struct _unicapture_state {
     bool video_capture_running;
     bool fallback_video_running;
     bool vtcapture_stalled;
+    bool histogram_used_in_session;
     unsigned vtcapture_stall_count;
 
     bool vsync_thread_running;

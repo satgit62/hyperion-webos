@@ -121,7 +121,7 @@ void* unicapture_vsync_handler(void* data)
                 this->video_capture->terminate(this->video_capture->state);
                 this->video_capture_running = false;
                 bool is_vtcapture = (this->video_capture && this->video_capture->name && strstr(this->video_capture->name, "vtcapture") != NULL);
-                if (is_vtcapture && ++this->vtcapture_stall_count >= 2 && this->fallback_video_capture != NULL) {
+                if (is_vtcapture && ++this->vtcapture_stall_count >= 1 && this->fallback_video_capture != NULL) {
                     WARN("Primary video capture stalled (%u times), enabling Histogram fallback...", this->vtcapture_stall_count);
                     this->vtcapture_stalled = true;
                 }
@@ -195,6 +195,7 @@ void* unicapture_run(void* data)
             last_fallback_start = now;
             if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
                 INFO("Histogram DRM fallback started");
+                this->histogram_used_in_session = true;
                 this->app_switched = false;
                 this->drm_fallback_start_us = now;
                 this->fallback_video_running = true;
@@ -220,7 +221,7 @@ void* unicapture_run(void* data)
             if (start_rc == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
-            } else if (((!this->hdmi_app_foreground && !this->home_app_foreground && (start_rc == -17 || this->drm_app_foreground)) || this->vtcapture_stalled) && fallback_video_capture != NULL && !this->fallback_video_running) {
+            } else if (((!this->hdmi_app_foreground && !this->home_app_foreground && (start_rc == -17 || this->drm_app_foreground)) || this->vtcapture_stalled || (this->hdmi_app_foreground && this->histogram_used_in_session)) && fallback_video_capture != NULL && !this->fallback_video_running) {
                 INFO("Starting Histogram fallback (rc=%d, drm_fg=%d, hdmi_fg=%d, stalled=%d)...", start_rc, this->drm_app_foreground, this->hdmi_app_foreground, this->vtcapture_stalled);
                 if (video_capture->cleanup && video_capture->state != NULL) {
                     video_capture->cleanup(video_capture->state);
@@ -259,7 +260,7 @@ void* unicapture_run(void* data)
             if ((ret = video_capture->acquire_frame(video_capture->state, &video_frame)) != 0) {
                 DBG("video_capture acquire_frame failed: %d", ret);
                 video_frame.pixel_format = PIXFMT_INVALID;
-                if (!this->hdmi_app_foreground && ++video_acquire_failures >= 2 && fallback_video_capture != NULL) {
+                if (!this->hdmi_app_foreground && !this->home_app_foreground && ++video_acquire_failures >= 2 && fallback_video_capture != NULL) {
                     INFO("DRM interruption detected (ret=%d), releasing primary driver for Histogram fallback...", ret);
                     pthread_mutex_lock(&this->vsync_lock);
                     this->video_capture_running = false;

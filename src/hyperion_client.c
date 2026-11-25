@@ -52,6 +52,7 @@ int hyperion_read()
     if (!sockfd)
         return -1;
     uint8_t headbuff[4];
+    errno = 0;
     int n = read(sockfd, headbuff, 4);
     if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
         return 0;
