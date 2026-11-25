@@ -116,13 +116,20 @@ void* unicapture_vsync_handler(void* data)
             this->vsync_in_video_wait = true;
             int vw_rc = this->video_capture->wait(this->video_capture->state);
             this->vsync_in_video_wait = false;
+            bool is_vtcapture = (this->video_capture && this->video_capture->name && strstr(this->video_capture->name, "vtcapture") != NULL);
             if (vw_rc == -99) { // stop video capture (will be started again in unicapture_run())
                 INFO("Stopping video capture.");
                 this->video_capture->terminate(this->video_capture->state);
                 this->video_capture_running = false;
-                bool is_vtcapture = (this->video_capture && this->video_capture->name && strstr(this->video_capture->name, "vtcapture") != NULL);
                 if (is_vtcapture && ++this->vtcapture_stall_count >= 1 && this->fallback_video_capture != NULL) {
                     WARN("Primary video capture stalled (%u times), enabling Histogram fallback...", this->vtcapture_stall_count);
+                    this->vtcapture_stalled = true;
+                }
+            } else if (is_vtcapture && (vw_rc == -17 || vw_rc == -13) && this->fallback_video_capture != NULL) {
+                if (++this->vtcapture_stall_count >= 5) {
+                    WARN("Primary video capture DRM-blocked in wait (rc=%d, %u times), enabling Histogram fallback...", vw_rc, this->vtcapture_stall_count);
+                    this->video_capture->terminate(this->video_capture->state);
+                    this->video_capture_running = false;
                     this->vtcapture_stalled = true;
                 }
             } else if (vw_rc == 0) {
@@ -221,7 +228,7 @@ void* unicapture_run(void* data)
             if (start_rc == 0) {
                 INFO("Video capture started");
                 this->video_capture_running = true;
-            } else if (((!this->hdmi_app_foreground && !this->home_app_foreground && (start_rc == -17 || this->drm_app_foreground)) || this->vtcapture_stalled || (this->hdmi_app_foreground && this->histogram_used_in_session)) && fallback_video_capture != NULL && !this->fallback_video_running) {
+            } else if (((!this->hdmi_app_foreground && !this->home_app_foreground && (start_rc == -13 || this->drm_app_foreground)) || this->vtcapture_stalled || (this->hdmi_app_foreground && this->histogram_used_in_session)) && fallback_video_capture != NULL && !this->fallback_video_running) {
                 INFO("Starting Histogram fallback (rc=%d, drm_fg=%d, hdmi_fg=%d, stalled=%d)...", start_rc, this->drm_app_foreground, this->hdmi_app_foreground, this->vtcapture_stalled);
                 if (video_capture->cleanup && video_capture->state != NULL) {
                     video_capture->cleanup(video_capture->state);
