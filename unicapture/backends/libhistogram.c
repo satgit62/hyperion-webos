@@ -543,7 +543,7 @@ static void eval_histogram_srgb(histogram_backend_state_t* self, const Histogram
     for (unsigned i = 0; i < 16; i++) dark_color_filter(srgb_eval[i]);
 }
 
-static bool is_uninitialized_yuv_green(const unsigned char srgb_eval[16][3])
+static bool is_uninitialized_yuv_green(unsigned char srgb_eval[16][3])
 {
     unsigned green_stub_regions = 0;
     for (int i = 0; i < 16; i++) {
