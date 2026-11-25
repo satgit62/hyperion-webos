@@ -222,7 +222,12 @@ void* unicapture_run(void* data)
                 this->video_capture_running = true;
             } else if (((!this->hdmi_app_foreground && !this->home_app_foreground && (start_rc == -17 || this->drm_app_foreground)) || this->vtcapture_stalled) && fallback_video_capture != NULL && !this->fallback_video_running) {
                 INFO("Starting Histogram fallback (rc=%d, drm_fg=%d, hdmi_fg=%d, stalled=%d)...", start_rc, this->drm_app_foreground, this->hdmi_app_foreground, this->vtcapture_stalled);
+                if (video_capture->cleanup && video_capture->state != NULL) {
+                    video_capture->cleanup(video_capture->state);
+                    video_capture->state = NULL;
+                }
                 usleep(150000);
+                this->app_switched = false;
                 drm_fallback_active = true;
                 last_primary_probe = now;
                 last_fallback_start = 0;
@@ -267,6 +272,7 @@ void* unicapture_run(void* data)
                     }
                     usleep(200000);
                     video_acquire_failures = 0;
+                    this->app_switched = false;
                     drm_fallback_active = true;
                     last_primary_probe = now;
                     last_fallback_start = 0;
@@ -278,7 +284,7 @@ void* unicapture_run(void* data)
         }
 
         if (drm_fallback_active && fallback_video_capture != NULL) {
-            if (this->app_switched && !this->drm_app_foreground) {
+            if (this->app_switched && !this->drm_app_foreground && !(this->hdmi_app_foreground && this->vtcapture_stalled)) {
                 this->app_switched = false;
                 INFO("Foreground app changed, exiting Histogram DRM fallback to restore UI/video capture");
                 if (this->fallback_video_running) {
