@@ -1,6 +1,6 @@
-#include <pthread.h>
 #include "hyperion_client.h"
 #include "log.h"
+#include <pthread.h>
 
 #include <arpa/inet.h>
 #include <errno.h>
