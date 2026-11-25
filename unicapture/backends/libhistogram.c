@@ -543,6 +543,20 @@ static void eval_histogram_srgb(histogram_backend_state_t* self, const Histogram
     for (unsigned i = 0; i < 16; i++) dark_color_filter(srgb_eval[i]);
 }
 
+static bool is_uninitialized_yuv_green(const unsigned char srgb_eval[16][3])
+{
+    unsigned green_stub_regions = 0;
+    for (int i = 0; i < 16; i++) {
+        unsigned r = srgb_eval[i][0];
+        unsigned g = srgb_eval[i][1];
+        unsigned b = srgb_eval[i][2];
+        if (g >= 110 && r <= 65 && b <= 45 && g > r * 2 && g > b * 3) {
+            green_stub_regions++;
+        }
+    }
+    return green_stub_regions >= 12;
+}
+
 static void worker_loop(histogram_backend_state_t* self, int fd) {
     int gp = -1; pid_t gpid = -1;
     enter_developer_mode(&gp, &gpid);
@@ -562,10 +576,14 @@ static void worker_loop(histogram_backend_state_t* self, int fd) {
         usleep(d); memset(hist, 0, sizeof(hist));
         int rc = self->vt_get(handle, hist);
         if (rc == 0 && histogram_populated(hist)) {
+            eval_histogram_srgb(self, hist, srgb_eval);
+            if (is_uninitialized_yuv_green(srgb_eval)) {
+                empty_ticks++;
+                continue;
+            }
             bool first_frame = !ever_populated;
             ever_populated = true;
             empty_ticks = 0;
-            eval_histogram_srgb(self, hist, srgb_eval);
             if (first_frame) {
                 int max_bin = -1;
                 uint64_t sum0 = 0;
