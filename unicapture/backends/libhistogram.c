@@ -331,14 +331,15 @@ static void leave_developer_mode(int* guard_pipe, pid_t* guard_pid)
 
 static bool histogram_populated(const Histogram hist[16])
 {
+    uint64_t active_bins = 0;
     for (int i = 0; i < 16; i++) {
         for (int c = 0; c < 3; c++) {
-            for (int b = 0; b < 256; b++) {
-                if (hist[i].bins[c][b] != 0) return true;
+            for (int b = 6; b < 256; b++) {
+                active_bins += hist[i].bins[c][b];
             }
         }
     }
-    return false;
+    return active_bins > 64;
 }
 
 static void dark_color_filter(unsigned char color[3])
@@ -638,7 +639,7 @@ int capture_acquire_frame(void* state, frame_info_t* frame) {
     }
     if (!got_new) {
         if (!self->has_last) return -2;
-        if (++self->stale_reads > 30) { self->has_last = false; self->stale_reads = 0; return -1; }
+        if (++self->stale_reads > 10) { self->has_last = false; return -2; }
     }
     memcpy(srgb_eval, self->last_srgb, sizeof(srgb_eval));
     for (unsigned i = 0; i < 16; i++)

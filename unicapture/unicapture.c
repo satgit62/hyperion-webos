@@ -315,6 +315,10 @@ void* unicapture_run(void* data)
                     this->fallback_video_running = false;
                     drm_fallback_active = false;
                     if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, false);
+                } else if (ret == -2 && this->ui_capture_running && ui_capture != NULL) {
+                    if (ui_capture->acquire_frame(ui_capture->state, &ui_frame) != 0) {
+                        ui_frame.pixel_format = PIXFMT_INVALID;
+                    }
                 }
             }
             if (false && (now - last_primary_probe) > 3000000 && video_capture != NULL) {
