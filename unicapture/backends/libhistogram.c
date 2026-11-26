@@ -550,7 +550,8 @@ static bool is_uninitialized_yuv_green(unsigned char srgb_eval[16][3])
         unsigned r = srgb_eval[i][0];
         unsigned g = srgb_eval[i][1];
         unsigned b = srgb_eval[i][2];
-        if (g >= 110 && r <= 65 && b <= 45 && g > r * 2 && g > b * 3) {
+        if ((g >= 110 && r <= 65 && b <= 45 && g > r * 2 && g > b * 3) ||
+            (g >= 100 && g > r + 25 && g > b + 35)) {
             green_stub_regions++;
         }
     }
