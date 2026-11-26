@@ -334,7 +334,7 @@ static bool histogram_populated(const Histogram hist[16])
     uint64_t active_bins = 0;
     for (int i = 0; i < 16; i++) {
         for (int c = 0; c < 3; c++) {
-            for (int b = 6; b < 256; b++) {
+            for (int b = 3; b < 256; b++) {
                 active_bins += hist[i].bins[c][b];
             }
         }
@@ -657,7 +657,7 @@ int capture_acquire_frame(void* state, frame_info_t* frame) {
     }
     if (!got_new) {
         if (!self->has_last) return -2;
-        if (++self->stale_reads > 10) { self->has_last = false; return -2; }
+        if (++self->stale_reads > 15) { self->has_last = false; self->stale_reads = 0; return -1; }
     }
     memcpy(srgb_eval, self->last_srgb, sizeof(srgb_eval));
     for (unsigned i = 0; i < 16; i++)
