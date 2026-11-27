@@ -141,14 +141,42 @@ int _write_message(const void* buffer, size_t size)
         (uint8_t)((size >> 8) & 0xFF),
         (uint8_t)(size & 0xFF)
     };
-    const struct iovec iov[] = {
+    struct iovec iov[] = {
         { (void*)header, sizeof(header) },
         { (void*)buffer, size }
     };
-    ssize_t expected = (ssize_t)(sizeof(header) + size);
-    ssize_t written = writev(sockfd, iov, 2);
+    size_t remaining = sizeof(header) + size;
+    int retries = 0;
+    while (remaining > 0) {
+        ssize_t written = writev(sockfd, iov, 2);
+        if (written > 0) {
+            size_t adv = (size_t)written;
+            remaining -= adv;
+            if (adv >= iov.iov_len) {
+                adv -= iov.iov_len;
+                iov.iov_len = 0;
+                iov.iov_base = (uint8_t*)iov.iov_base + adv;
+                iov.iov_len -= adv;
+            } else {
+                iov.iov_base = (uint8_t*)iov.iov_base + adv;
+                iov.iov_len -= adv;
+            }
+            retries = 0;
+        } else if (written < 0 && (errno == EINTR || ((errno == EAGAIN || errno == EWOULDBLOCK) && ++retries <= 2))) {
+            continue;
+        } else {
+            WARN("Incomplete FlatBuffers write (remaining=%zu, err=%s), resetting socket to avoid stream desync", remaining, strerror(errno));
+            shutdown(sockfd, SHUT_RDWR);
+            close(sockfd);
+            sockfd = 0;
+            _connected = false;
+            _registered = false;
+            pthread_mutex_unlock(&_write_lock);
+            return -1;
+        }
+    }
     pthread_mutex_unlock(&_write_lock);
-    return written == expected ? 0 : -1;
+    return 0;
 }
 
 int _send_message(const void* buffer, size_t size)
