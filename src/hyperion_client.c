@@ -1,6 +1,7 @@
 #include "hyperion_client.h"
 #include "log.h"
 #include <pthread.h>
+#include <signal.h>
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -38,6 +39,7 @@ int hyperion_client(const char* origin, const char* hostname, int port, bool uni
     _priority = priority;
     _connected = false;
     _registered = false;
+    signal(SIGPIPE, SIG_IGN);
     sockfd = 0;
 
     if (unix_socket) {
@@ -46,6 +48,8 @@ int hyperion_client(const char* origin, const char* hostname, int port, bool uni
         return _connect_inet_socket(hostname, port);
     }
 }
+
+static pthread_mutex_t sock_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int hyperion_read()
 {
@@ -70,10 +74,12 @@ int hyperion_read()
 
 int hyperion_destroy()
 {
-    if (!sockfd)
-        return 0;
-    close(sockfd);
-    sockfd = 0;
+    pthread_mutex_lock(&sock_lock);
+    if (sockfd > 0) {
+        close(sockfd);
+        sockfd = 0;
+    }
+    pthread_mutex_unlock(&sock_lock);
     return 0;
 }
 

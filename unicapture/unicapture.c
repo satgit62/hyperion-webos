@@ -216,7 +216,7 @@ void* unicapture_run(void* data)
                 DBG("Histogram DRM fallback waiting for DRM pipeline to settle, will retry...");
             }
         }
-        if (!drm_fallback_active && (now - last_video_start) > 1000000 && video_capture != NULL && !this->video_capture_running) {
+        if (!drm_fallback_active && (now - last_video_start) > 3000000 && video_capture != NULL && !this->video_capture_running) {
             last_video_start = now;
             DBG("Attempting video capture init...");
             if (video_capture->state == NULL && video_capture->init) {
