@@ -657,8 +657,8 @@ int capture_acquire_frame(void* state, frame_info_t* frame) {
         else break;
     }
     if (!got_new) {
+        if (++self->stale_reads > 8) { self->has_last = false; self->stale_reads = 0; return -1; }
         if (!self->has_last) return -2;
-        if (++self->stale_reads > 15) { self->has_last = false; self->stale_reads = 0; return -1; }
     }
     memcpy(srgb_eval, self->last_srgb, sizeof(srgb_eval));
     for (unsigned i = 0; i < 16; i++)
