@@ -21,6 +21,58 @@
 static int _connect_unix_socket(const char* hostname);
 static int _connect_inet_socket(const char* hostname, int port);
 static int _send_message(const void* buffer, size_t size);
+static int _write_message(const void* buffer, size_t size)
+{
+    pthread_mutex_lock(&_write_lock);
+    if (!sockfd) {
+        pthread_mutex_unlock(&_write_lock);
+        return -1;
+    }
+    const uint8_t header[] = {
+        (uint8_t)((size >> 24) & 0xFF),
+        (uint8_t)((size >> 16) & 0xFF),
+        (uint8_t)((size >> 8) & 0xFF),
+        (uint8_t)(size & 0xFF)
+    };
+    struct iovec iov[2] = {
+        { (void*)header, sizeof(header) },
+        { (void*)buffer, size }
+    };
+    size_t remaining = sizeof(header) + size;
+    int retries = 0;
+    while (remaining > 0) {
+        ssize_t written = writev(sockfd, iov, 2);
+        if (written > 0) {
+            size_t adv = (size_t)written;
+            remaining -= adv;
+            if (adv >= iov[0].iov_len) {
+                adv -= iov[0].iov_len;
+                iov[0].iov_len = 0;
+                iov[1].iov_base = (uint8_t*)iov[1].iov_base + adv;
+                iov[1].iov_len -= adv;
+            } else {
+                iov[0].iov_base = (uint8_t*)iov[0].iov_base + adv;
+                iov[0].iov_len -= adv;
+            }
+            retries = 0;
+        } else if (written < 0 && (errno == EINTR || ((errno == EAGAIN || errno == EWOULDBLOCK) && ++retries <= 2))) {
+            continue;
+        } else {
+            WARN("Incomplete FlatBuffers write (remaining=%zu, err=%s), resetting socket to avoid stream desync", remaining, strerror(errno));
+            shutdown(sockfd, SHUT_RDWR);
+            close(sockfd);
+            sockfd = 0;
+            _connected = false;
+            _registered = false;
+            pthread_mutex_unlock(&_write_lock);
+            return -1;
+        }
+    }
+    pthread_mutex_unlock(&_write_lock);
+    return 0;
+}
+
+int _send_message(const void* buffer, size_t size);
 static int _write_message(const void* buffer, size_t size);
 static bool _parse_reply(hyperionnet_Reply_table_t reply);
 
