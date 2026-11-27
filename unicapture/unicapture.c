@@ -309,16 +309,21 @@ void* unicapture_run(void* data)
         if (drm_fallback_active && fallback_video_capture != NULL) {
             if (this->fallback_video_running && (ret = fallback_video_capture->acquire_frame(fallback_video_capture->state, &video_frame)) != 0) {
                 video_frame.pixel_format = PIXFMT_INVALID;
-                if (ret == -1 && !this->drm_app_foreground && !this->hdmi_app_foreground) {
-                    INFO("Histogram DRM stream ended on non-DRM app, returning to normal UI/video capture");
+                if (ret == -1) {
                     fallback_video_capture->terminate(fallback_video_capture->state);
                     this->fallback_video_running = false;
-                    drm_fallback_active = false;
-                    if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, false);
+                    if (!this->drm_app_foreground && !this->hdmi_app_foreground) {
+                        INFO("Histogram DRM stream ended on non-DRM app, returning to normal UI/video capture");
+                        drm_fallback_active = false;
+                        if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, false);
+                    } else {
+                        INFO("Histogram worker exited while DRM/HDMI still active, scheduling immediate restart");
+                        last_fallback_start = 0;
+                    }
                     if (this->ui_capture_running && ui_capture != NULL && ui_capture->acquire_frame(ui_capture->state, &ui_frame) != 0) {
                         ui_frame.pixel_format = PIXFMT_INVALID;
                     }
-                } else if ((ret == -1 || ret == -2) && this->ui_capture_running && ui_capture != NULL) {
+                } else if (ret == -2 && this->ui_capture_running && ui_capture != NULL) {
                     if (ui_capture->acquire_frame(ui_capture->state, &ui_frame) != 0) {
                         ui_frame.pixel_format = PIXFMT_INVALID;
                     }
