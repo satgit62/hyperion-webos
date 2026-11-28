@@ -326,6 +326,9 @@ void* unicapture_run(void* data)
                     if (!this->drm_app_foreground && !this->hdmi_app_foreground) {
                         INFO("Histogram DRM stream ended on non-DRM app, returning to normal UI/video capture");
                         drm_fallback_active = false;
+                        this->vtcapture_stalled = false;
+                        this->vtcapture_stall_count = 0;
+                        video_acquire_failures = 0;
                         if (this->fallback_callback != NULL) this->fallback_callback(this->callback_data, false);
                     } else {
                         INFO("Histogram worker exited while DRM/HDMI still active, scheduling immediate restart");
