@@ -123,6 +123,16 @@ void* unicapture_vsync_handler(void* data)
                 this->video_capture_running = false;
                 if (is_vtcapture && ++this->vtcapture_stall_count >= 1 && this->fallback_video_capture != NULL) {
                     WARN("Primary video capture stalled (%u times), enabling Histogram fallback...", this->vtcapture_stall_count);
+                if (this->drm_fallback_enabled && fallback_video_capture != NULL && !drm_fallback_active) {
+                    if (fallback_video_capture->start(fallback_video_capture->state) == 0) {
+                        this->fallback_video_running = true;
+                        drm_fallback_active = true;
+                        if (this->fallback_callback != NULL) {
+                            this->fallback_callback(this->callback_data, true);
+                        }
+                        INFO("Histogram fallback started immediately after primary video stall");
+                    }
+                }
                     this->vtcapture_stalled = true;
                 }
             } else if (is_vtcapture && (vw_rc == -17 || vw_rc == -13) && this->fallback_video_capture != NULL) {
